@@ -1,18 +1,40 @@
 # AWS Serverless Event-Driven Application
 
+> **Madar Cloud Transformation — Phase 2**  
 > Portfolio Project 2 — Serverless, Event-Driven Architecture + Terraform Infrastructure as Code
+
+## Company Context
+
+**Madar (مدار)** is a fictional growing digital commerce company used as a continuous business case across this cloud engineering portfolio.
+
+Each portfolio project addresses a realistic engineering problem that appears as Madar grows. The goal is not to collect AWS services, but to demonstrate how cloud engineering decisions solve business and operational problems.
+
+> **Portfolio note:** Madar is fictional. The architecture, implementation, testing, troubleshooting, and evidence in this repository are real hands-on portfolio work.
+
+### Madar Cloud Transformation Journey
+
+```text
+Phase 1  Reliability & Traffic Scaling        -> Highly Available AWS Web Architecture
+Phase 2  Reliable Asynchronous Processing     -> THIS PROJECT
+Phase 3  Deployment Automation                -> CI/CD
+Phase 4  Security & Threat Detection          -> Cloud Security
+Phase 5  Workforce Access & Identity          -> SSO / Identity Center
+Phase 6  Legacy Modernization                 -> Cloud Migration
+```
 
 ## Project Status
 
 **Planning and repository preparation complete — implementation starts next.**
 
-This project solves a realistic company problem: processing unpredictable bursts of asynchronous work reliably without keeping servers running all day.
-
 ## Business Problem
 
-A company receives uneven traffic from document uploads, order-processing jobs, and background tasks. During quiet periods traffic is low; during promotions, month-end processing, or batch uploads, hundreds or thousands of jobs can arrive quickly.
+As Madar grows, its digital platform receives uneven bursts of work from customer requests, order-processing jobs, document uploads, and background tasks. During quiet periods traffic is low; during promotions, month-end processing, or batch uploads, hundreds or thousands of jobs can arrive quickly.
 
 A tightly coupled synchronous backend can become overloaded, time out, lose work, or require expensive always-on capacity sized for peak demand.
+
+### Engineering Goal
+
+Design a serverless event-driven processing pipeline that can absorb traffic bursts, decouple request intake from background processing, preserve failed work for investigation and recovery, provide operational visibility, and avoid paying for idle servers.
 
 ## Proposed Architecture
 
@@ -44,6 +66,12 @@ Repeated processing failure
 SQS Dead-Letter Queue
 ```
 
+## Why This Architecture
+
+Think of SQS as Madar's receiving warehouse: incoming jobs can arrive faster than workers can process them, but they wait safely in a queue instead of disappearing or overwhelming the application. Lambda workers consume jobs as capacity is available, while the DLQ isolates repeatedly failing jobs so they can be investigated without blocking healthy work.
+
+This architecture is intended to demonstrate **decoupling, elasticity, failure isolation, recovery, observability, and cost-aware serverless design**.
+
 ## Infrastructure as Code
 
 The AWS environment will be built with **Terraform** rather than by manually creating every resource in the console.
@@ -71,6 +99,7 @@ Terraform is part of the learning objective, not just a shortcut. Each resource 
 
 ## What This Project Will Demonstrate
 
+- Translating a business reliability problem into an AWS architecture
 - Serverless architecture
 - Event-driven and asynchronous design
 - Decoupling with Amazon SQS
@@ -101,6 +130,8 @@ Terraform is part of the learning objective, not just a shortcut. Each resource 
 3. No AWS secrets, access keys, tokens, or Terraform state files are committed.
 4. Terraform changes are reviewed with `terraform plan` before `terraform apply`.
 5. Cleanup is part of the project and must be verified after `terraform destroy`.
+6. Portfolio claims must describe what was actually implemented and verified.
+7. Madar is always identified as a fictional company; it is business context, not claimed employment or client work.
 
 ## Repository Structure
 
@@ -138,7 +169,7 @@ Terraform is part of the learning objective, not just a shortcut. Each resource 
 
 ## Documentation
 
-- [`docs/business-problem.md`](docs/business-problem.md) — business case and measurable success criteria
+- [`docs/business-problem.md`](docs/business-problem.md) — Madar business case and measurable success criteria
 - [`docs/architecture.md`](docs/architecture.md) — planned technical architecture and design decisions
 - [`docs/implementation-checklist.md`](docs/implementation-checklist.md) — complete build checklist
 - [`docs/progress.md`](docs/progress.md) — continuously updated implementation status
