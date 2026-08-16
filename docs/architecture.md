@@ -1,5 +1,11 @@
 # Architecture
 
+## Status
+
+**Planned architecture — implementation not started yet.**
+
+Terraform will be the primary provisioning method. The AWS Console will be used to inspect, understand, test, and verify the resources Terraform creates.
+
 ## Planned Architecture
 
 ```text
@@ -27,55 +33,86 @@ SQS retry exhaustion
         v
        DLQ
 
-All components
-     |
-     v
+All runtime components
+        |
+        v
 CloudWatch Logs / Metrics / Alarms
 ```
 
 ## Why This Architecture
 
-The queue separates request intake from processing. API Gateway and the producer path can accept requests quickly while SQS absorbs traffic bursts. Lambda workers scale from queued demand instead of requiring pre-provisioned servers.
+The queue separates request intake from processing. API Gateway and the producer Lambda can accept work quickly while SQS absorbs bursts. Lambda workers scale from queued demand instead of requiring an always-on server fleet.
 
-Think of SQS as a warehouse receiving dock. Trucks can keep dropping packages even when workers are busy. Lambda represents workers who pick jobs from the queue as capacity becomes available.
+Think of SQS as a company receiving dock: trucks can keep dropping packages even if workers are temporarily busy. Lambda workers pick jobs from the queue as processing capacity becomes available.
 
 ## Component Responsibilities
 
 ### API Gateway
-
-Public API entry point. Valid requests should be accepted without waiting for long-running processing to finish.
+Public API entry point. The request should be accepted quickly without waiting for asynchronous processing to finish.
 
 ### Producer Lambda
+Validates and normalizes input, creates a job ID, records the initial state, and publishes work to SQS.
 
-Validates and normalizes the request, creates a job ID, optionally records an initial job state, and publishes work to SQS.
-
-### SQS
-
-Durable buffer between request intake and processing. It protects the worker tier from sudden traffic bursts and enables retries.
+### SQS Main Queue
+Durable buffer between request intake and processing. It protects workers from traffic bursts and provides retry behavior.
 
 ### Worker Lambda
-
-Consumes queued jobs and performs the business operation. It updates job status and writes results.
+Consumes queued jobs, performs the demo business operation, updates job status, writes results, and publishes notifications where required.
 
 ### DynamoDB
-
-Stores job metadata and status such as `QUEUED`, `PROCESSING`, `SUCCEEDED`, and `FAILED`.
+Stores job metadata and state such as `QUEUED`, `PROCESSING`, `SUCCEEDED`, and `FAILED`.
 
 ### S3
-
-Stores uploaded objects or generated output when the workload includes files.
+Stores test input/output objects when the workflow requires file or result storage.
 
 ### SNS
+Publishes operational or job-completion notifications where useful.
 
-Publishes success/failure notifications where useful.
-
-### Dead-Letter Queue
-
-Receives messages that repeatedly fail processing so poison jobs do not block normal work indefinitely.
+### SQS Dead-Letter Queue
+Receives jobs that exhaust the configured receive attempts so poison messages remain isolated and diagnosable.
 
 ### CloudWatch
+Provides Lambda logs, service metrics, alarms, and runtime evidence.
 
-Provides logs, metrics, dashboards, and alarms for operational visibility.
+### IAM
+Provides separate least-privilege execution permissions for producer and worker functions.
+
+## Terraform Design
+
+Terraform is part of the implemented solution from the beginning.
+
+```text
+Terraform configuration
+        |
+        +--> API Gateway
+        +--> Lambda
+        +--> SQS + DLQ
+        +--> DynamoDB
+        +--> S3
+        +--> SNS
+        +--> CloudWatch
+        +--> IAM
+```
+
+Planned Terraform file separation:
+
+```text
+terraform/
+├── versions.tf
+├── providers.tf
+├── variables.tf
+├── outputs.tf
+├── api_gateway.tf
+├── sqs.tf
+├── lambda.tf
+├── dynamodb.tf
+├── s3.tf
+├── sns.tf
+├── cloudwatch.tf
+└── iam.tf
+```
+
+The first implementation will intentionally stay simple: one root module, readable resource files, variables for reusable values, and outputs for runtime endpoints/resource names. Advanced modules and remote state are future Terraform learning steps, not requirements for this project.
 
 ## Security Model
 
@@ -86,42 +123,57 @@ Client
 API Gateway
   |
   v
-Lambda execution roles
+Producer Lambda role
   |
-  +--> only required SQS actions
-  +--> only required DynamoDB actions
-  +--> only required S3 actions
-  +--> only required SNS actions
+  +--> required DynamoDB actions only
+  +--> required SQS actions only
+
+SQS
+  |
+  v
+Worker Lambda role
+  |
+  +--> required SQS actions only
+  +--> required DynamoDB actions only
+  +--> required S3 actions only
+  +--> required SNS actions only
 ```
 
-IAM policies should follow least privilege. Static AWS keys must not be embedded in Lambda code or committed to the repository.
+Static AWS credentials must never be embedded in Lambda code, Terraform files, `.tfvars`, or Git history.
 
 ## Reliability Principles
 
-- Durable queue before asynchronous processing.
-- Explicit retry behavior.
-- DLQ for repeated failures.
-- Idempotent processing where possible.
-- Persisted job status for observability.
-- CloudWatch visibility for runtime diagnosis.
+- Durable queue before asynchronous processing
+- Explicit retry behavior
+- DLQ for repeated failures
+- Persisted job status
+- Idempotent processing where practical
+- Observable runtime behavior
+- Measured failure and recovery tests
+- Reproducible infrastructure through Terraform
 
 ## Scaling Model
 
-There is no fixed EC2 fleet. Lambda concurrency grows with available queued work within configured service/account limits.
+There is no fixed EC2 fleet.
 
 ```text
 Low traffic  -> few/no active workers
-Burst        -> queue grows -> more Lambda concurrency
-Demand falls -> workers disappear automatically
+Burst        -> queue depth grows -> Lambda concurrency grows
+Demand falls -> queue drains -> workers disappear automatically
 ```
 
-## Planned Production Enhancements
+We will record observed metrics during the burst test instead of claiming theoretical scaling results.
 
-These are enhancements, not claims of implementation:
+## Planned Production Enhancements — Not Implemented
 
-- API authentication/authorization with Cognito or another identity provider.
-- AWS WAF in front of API Gateway where Internet exposure requires it.
-- KMS customer-managed keys for stricter encryption/key controls.
-- Reserved concurrency and throttling tuned from measured workload behavior.
-- Step Functions if the business workflow becomes multi-stage or requires orchestration.
-- Infrastructure as Code after the architecture is manually understood and verified.
+These must remain clearly separated from implemented features:
+
+- Cognito or another identity provider for API authentication
+- AWS WAF in front of the public API where justified
+- Customer-managed KMS keys where organizational requirements demand them
+- Reserved Lambda concurrency/throttling based on measured production workload
+- Step Functions for multi-stage orchestration
+- Terraform modules and remote state for larger team environments
+- CI/CD automation for Terraform validation/plan/deployment
+
+The final architecture document will be rewritten to describe only what was actually implemented and verified.

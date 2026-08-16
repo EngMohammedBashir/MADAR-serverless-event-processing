@@ -1,128 +1,186 @@
 # Implementation Checklist
 
-## Phase 0 — Guardrails
+> Rule: a checkbox is marked complete only after the specific action has been performed. Runtime features are not **Verified** until tested.
 
-- [ ] Confirm AWS Region.
-- [ ] Review current AWS Budget/alerts.
-- [ ] Confirm no long-lived access keys will be stored in code.
-- [ ] Decide project naming convention and tags.
+## Phase 0 — Local Tooling and Cost Guardrails
 
-## Phase 1 — Data Layer
+- [ ] Confirm AWS Region: `us-east-1` unless intentionally changed.
+- [ ] Review AWS Budget/alerts and current Billing page.
+- [ ] Install Terraform.
+- [ ] Verify `terraform version`.
+- [ ] Verify Git installation and repository access.
+- [ ] Install/configure AWS CLI if needed for Terraform authentication.
+- [ ] Verify AWS identity using `aws sts get-caller-identity`.
+- [ ] Confirm no long-lived AWS credentials will be committed.
+- [ ] Define naming prefix and project tags.
+- [ ] Review `.gitignore` before creating Terraform state.
 
-- [ ] Create DynamoDB table for job status.
-- [ ] Define partition key strategy.
-- [ ] Enable suitable encryption defaults.
-- [ ] Create S3 bucket for input/output objects if required.
-- [ ] Block public access on the S3 bucket.
-- [ ] Verify basic DynamoDB write/read manually.
-- [ ] Verify S3 upload/read manually.
+## Phase 1 — Terraform Fundamentals
 
-## Phase 2 — Queue and Failure Path
+- [ ] Understand provider, resource, data source, variable, output, and state at a basic level.
+- [ ] Review `versions.tf` and provider version constraints.
+- [ ] Review `providers.tf` and AWS Region variable.
+- [ ] Run `terraform fmt -recursive`.
+- [ ] Run `terraform init`.
+- [ ] Run `terraform validate`.
+- [ ] Understand what `.terraform/`, `.terraform.lock.hcl`, and `terraform.tfstate` are.
+- [ ] Confirm `terraform.tfstate` and `.tfvars` are excluded from Git.
 
-- [ ] Create main SQS queue.
-- [ ] Create Dead-Letter Queue.
+## Phase 2 — Core Data and Messaging Infrastructure
+
+- [ ] Define DynamoDB job-status table in Terraform.
+- [ ] Define partition key strategy using `job_id`.
+- [ ] Define S3 results/input bucket if required by the demo workflow.
+- [ ] Keep S3 Block Public Access enabled.
+- [ ] Define main SQS queue.
+- [ ] Define SQS Dead-Letter Queue.
 - [ ] Configure redrive policy.
 - [ ] Choose visibility timeout appropriate for worker runtime.
-- [ ] Send a manual test message.
-- [ ] Receive/delete a manual test message.
+- [ ] Add useful Terraform outputs for resource names/ARNs.
 
 ## Phase 3 — IAM
 
-- [ ] Create producer Lambda execution role.
-- [ ] Grant only required CloudWatch Logs permissions.
-- [ ] Grant producer only required SQS/DynamoDB permissions.
-- [ ] Create worker Lambda execution role.
+- [ ] Define producer Lambda execution role in Terraform.
+- [ ] Grant CloudWatch Logs permissions required by producer.
+- [ ] Grant producer only required DynamoDB/SQS permissions.
+- [ ] Define worker Lambda execution role in Terraform.
 - [ ] Grant worker only required SQS/DynamoDB/S3/SNS permissions.
-- [ ] Review policies for wildcard resources/actions.
+- [ ] Avoid `Action: *` where practical.
+- [ ] Avoid `Resource: *` where resource-level permissions are supported.
+- [ ] Review final IAM policy JSON before deployment.
 
-## Phase 4 — Producer Path
+## Phase 4 — Lambda Application Code
 
-- [ ] Create producer Lambda.
-- [ ] Generate a unique job ID.
-- [ ] Validate request input.
-- [ ] Write initial job status.
-- [ ] Send job to SQS.
-- [ ] Return fast API response with job ID.
-- [ ] Verify producer Lambda directly.
-
-## Phase 5 — Worker Path
-
-- [ ] Create worker Lambda.
-- [ ] Configure SQS event source mapping.
+- [ ] Implement producer Lambda in Python.
+- [ ] Validate input.
+- [ ] Generate unique job ID.
+- [ ] Persist initial `QUEUED` state.
+- [ ] Send normalized message to SQS.
+- [ ] Return fast response containing job ID.
+- [ ] Implement worker Lambda in Python.
 - [ ] Parse queue message safely.
 - [ ] Mark job `PROCESSING`.
-- [ ] Perform demo business operation.
-- [ ] Write output to S3 if applicable.
+- [ ] Perform deterministic demo business operation.
+- [ ] Write S3 result if included.
 - [ ] Mark job `SUCCEEDED`.
 - [ ] Publish SNS notification if included.
-- [ ] Verify automatic queue consumption.
+- [ ] Include job ID in structured logs.
+- [ ] Add deterministic failure trigger for DLQ testing.
+
+## Phase 5 — Lambda Infrastructure and Event Source
+
+- [ ] Package producer Lambda for Terraform deployment.
+- [ ] Package worker Lambda for Terraform deployment.
+- [ ] Define producer Lambda resource.
+- [ ] Define worker Lambda resource.
+- [ ] Configure required environment variables.
+- [ ] Define SQS event-source mapping for worker.
+- [ ] Configure batch size intentionally.
+- [ ] Verify SQS visibility timeout exceeds expected Lambda processing time.
 
 ## Phase 6 — API Gateway
 
-- [ ] Create REST or HTTP API.
+- [ ] Choose HTTP API or REST API and document why.
+- [ ] Define API Gateway in Terraform.
 - [ ] Create job-submission route.
 - [ ] Integrate route with producer Lambda.
-- [ ] Configure CORS only if needed.
-- [ ] Test valid request.
-- [ ] Test invalid request.
-- [ ] Verify returned job ID maps to DynamoDB status.
+- [ ] Add Lambda invoke permission.
+- [ ] Configure CORS only if actually required.
+- [ ] Output deployed API endpoint.
 
-## Phase 7 — Failure Recovery
+## Phase 7 — SNS and CloudWatch
 
-- [ ] Add deterministic failure test case.
-- [ ] Verify Lambda failure leaves message for retry.
-- [ ] Observe SQS receive count increase.
+- [ ] Define SNS topic.
+- [ ] Add email subscription only if required for demo notification.
+- [ ] Confirm email subscription manually.
+- [ ] Define useful CloudWatch alarm, preferably DLQ messages > 0.
+- [ ] Connect alarm to SNS where appropriate.
+- [ ] Set intentional CloudWatch log retention to avoid indefinite lab logs.
+
+## Phase 8 — Terraform Review and First Deployment
+
+- [ ] Run `terraform fmt -recursive`.
+- [ ] Run `terraform validate`.
+- [ ] Run `terraform plan`.
+- [ ] Read the complete plan before applying.
+- [ ] Confirm no unexpected paid/high-cost resources are present.
+- [ ] Run `terraform apply`.
+- [ ] Save useful outputs.
+- [ ] Inspect every created resource in the AWS Console.
+- [ ] Update `docs/progress.md` from Planned to Configured where appropriate.
+
+## Phase 9 — Core Runtime Verification
+
+- [ ] Submit valid request through API Gateway.
+- [ ] Verify producer Lambda invocation.
+- [ ] Verify SQS message path.
+- [ ] Verify worker Lambda invocation.
+- [ ] Verify DynamoDB state lifecycle.
+- [ ] Verify S3 output where used.
+- [ ] Verify SNS notification where used.
+- [ ] Verify API response job ID maps to persisted job state.
+
+## Phase 10 — Failure and Recovery Verification
+
+- [ ] Submit deterministic failure job.
+- [ ] Verify worker failure leaves message for retry.
+- [ ] Observe SQS ApproximateReceiveCount increase.
 - [ ] Verify message reaches DLQ after configured retries.
-- [ ] Confirm failed job remains diagnosable.
-- [ ] Document replay/recovery procedure.
+- [ ] Confirm failed job remains diagnosable by job ID.
+- [ ] Verify DLQ CloudWatch alarm behavior where practical.
+- [ ] Document a safe replay/recovery procedure.
+- [ ] Recover or replay one test message if practical.
 
-## Phase 8 — Burst Test
+## Phase 11 — Burst / Scaling Verification
 
 - [ ] Submit multiple jobs quickly.
 - [ ] Observe queue depth rise.
-- [ ] Observe Lambda invocations/concurrency increase.
-- [ ] Verify all successful jobs complete.
+- [ ] Observe Lambda invocation/concurrency behavior.
+- [ ] Verify successful jobs complete without manual server scaling.
 - [ ] Verify DynamoDB status consistency.
-- [ ] Record actual metrics rather than estimated values.
+- [ ] Record actual request count, processing duration, queue metrics, and Lambda metrics.
 
-## Phase 9 — Monitoring
+## Phase 12 — Security Review
 
-- [ ] Review CloudWatch Lambda logs.
-- [ ] Review SQS queue metrics.
-- [ ] Review Lambda Errors/Duration/Invocations.
-- [ ] Create useful alarm, e.g. DLQ messages > 0.
-- [ ] Add SNS email notification if useful.
-- [ ] Verify alarm behavior if practical.
+- [ ] Confirm S3 remains private.
+- [ ] Confirm separate least-privilege Lambda roles.
+- [ ] Confirm no secrets/access keys/tokens in code or Git history.
+- [ ] Confirm Terraform state is not committed.
+- [ ] Review CloudWatch logs for accidental sensitive data.
+- [ ] Document API authentication as implemented or production recommendation.
+- [ ] Document WAF/KMS/Secrets Manager as implemented or recommendations only.
 
-## Phase 10 — Security Review
+## Phase 13 — Portfolio Evidence and Documentation
 
-- [ ] Confirm S3 is not public.
-- [ ] Confirm least-privilege IAM roles.
-- [ ] Confirm no secrets/API keys in GitHub.
-- [ ] Confirm encryption at rest is enabled/defaulted appropriately.
-- [ ] Document API authentication as implemented or planned.
-- [ ] Document WAF as implemented or production enhancement.
+- [ ] Capture architecture diagram after implementation stabilizes.
+- [ ] Capture Terraform `plan` summary without exposing sensitive values.
+- [ ] Capture API successful response.
+- [ ] Capture SQS processing/burst evidence.
+- [ ] Capture Lambda logs showing job ID traceability.
+- [ ] Capture DynamoDB job-state evidence.
+- [ ] Capture DLQ failure evidence.
+- [ ] Capture CloudWatch alarm/metrics evidence.
+- [ ] Capture final successful workflow result.
+- [ ] Store screenshots under `evidence/` with descriptive filenames.
+- [ ] Keep only the strongest evidence embedded in the final README.
+- [ ] Update `architecture.md` from planned to actual.
+- [ ] Update `testing-verification.md` with observed results.
+- [ ] Update `lessons-learned.md` with real engineering findings.
+- [ ] Synchronize `progress.md`.
 
-## Phase 11 — Final Verification
+## Phase 14 — Cleanup and Final Cost Verification
 
-- [ ] API request accepted.
-- [ ] SQS message created.
-- [ ] Worker Lambda invoked.
-- [ ] DynamoDB status updated.
-- [ ] S3 output verified where used.
-- [ ] Burst test verified.
-- [ ] Retry verified.
-- [ ] DLQ verified.
-- [ ] Monitoring verified.
-- [ ] Architecture documentation updated from planned to actual.
-- [ ] `progress.md` synchronized.
-
-## Phase 12 — Cleanup
-
-- [ ] Delete unnecessary test objects.
-- [ ] Delete/disable billable or noisy resources if lab is complete.
-- [ ] Review CloudWatch log retention.
-- [ ] Review S3 contents/versioning before deletion.
-- [ ] Review DynamoDB/SQS/Lambda/API Gateway resources.
-- [ ] Confirm no unexpected ongoing charges.
-- [ ] Mark cleanup in `progress.md`.
+- [ ] Review `terraform plan -destroy` before cleanup.
+- [ ] Run `terraform destroy` after final evidence collection.
+- [ ] Confirm Terraform reports zero managed resources afterward.
+- [ ] Check API Gateway for residual APIs/stages.
+- [ ] Check Lambda functions/event mappings.
+- [ ] Check SQS main queue and DLQ.
+- [ ] Check DynamoDB tables.
+- [ ] Check S3 bucket/objects and manually empty if Terraform deletion requires it.
+- [ ] Check SNS topics/subscriptions.
+- [ ] Check CloudWatch alarms and log groups.
+- [ ] Check project IAM roles/policies.
+- [ ] Review AWS Billing/Cost Explorer after cleanup.
+- [ ] Record final estimated cost.
+- [ ] Mark project `COMPLETED — VERIFIED — CLEANED UP` only when final checks pass.
