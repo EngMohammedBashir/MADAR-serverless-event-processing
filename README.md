@@ -36,15 +36,15 @@ The goal is not to collect AWS services. Each phase starts with an operational p
 
 ## Project Status
 
-**IMPLEMENTATION AND RUNTIME VERIFICATION COMPLETE.** The serverless pipeline, SNS notifications, retry/DLQ behavior, DLQ recovery, burst behavior, CloudWatch alarms, resource-scoped IAM, S3 public-access protection, Terraform drift check, Terraform-managed teardown, and final billing review have all been completed.
+**COMPLETED — VERIFIED — CLEANED UP.**
 
-One final housekeeping item remains before the repository is labeled fully cleaned up: explicitly inspect and remove any service-created Lambda CloudWatch log groups, because those log groups are not managed by the current Terraform configuration.
+The serverless pipeline, SNS notifications, retry/DLQ behavior, DLQ recovery, burst behavior, CloudWatch alarms, resource-scoped IAM, S3 public-access protection, Terraform drift check, Terraform-managed teardown, residual-resource cleanup, and final billing review were all completed successfully.
 
 ## Business Problem
 
 As MADAR grows, customer requests and background jobs arrive in uneven bursts. A tightly coupled synchronous backend would force request intake and job processing to scale together, increasing the chance of timeouts, lost work, and expensive always-on capacity.
 
-MADAR therefore needs an asynchronous processing layer that can accept work quickly, buffer it safely, process it independently, retain failed jobs for investigation, recover failed work safely, and provide operational visibility.
+MADAR therefore needed an asynchronous processing layer that could accept work quickly, buffer it safely, process it independently, retain failed jobs for investigation, recover failed work safely, and provide operational visibility.
 
 ## Implemented Architecture
 
@@ -107,13 +107,13 @@ SQS message
   -> DLQ
 ```
 
-CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message. This verifies the retry and failure-isolation behavior rather than only showing that a DLQ resource exists.
+CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message. This verified retry and failure isolation rather than only showing that a DLQ resource existed.
 
 The temporary failure condition was removed after the test and the normal worker implementation was redeployed.
 
 ## Verified Recovery / Redrive
 
-The failed DLQ message was later redriven back to its source queue after the temporary failure condition had been removed.
+The failed DLQ message was redriven back to its source queue after the temporary failure condition had been removed.
 
 ```text
 DLQ
@@ -125,7 +125,7 @@ DLQ
 
 The SQS redrive task completed at **100% / Successfully completed**. The same failed event ID, `95653788-e897-4b5f-9ff5-281b055b6285`, was then verified in DynamoDB with `status = PROCESSED`.
 
-This completes the full failure-recovery story: **fail → retry → isolate → repair → replay → recover**.
+This completed the full failure-recovery story: **fail → retry → isolate → repair → replay → recover**.
 
 ## Burst and Scaling Test
 
@@ -165,11 +165,7 @@ Security controls were reviewed after functional testing:
 - Producer and worker used separate IAM roles.
 - Application permissions were scoped to named MADAR resources rather than broad `Resource = "*"` access where resource-level permissions are supported.
 - After teardown, the Terraform IAM action lists were tightened further to match the current handler calls.
-- S3 bucket public-access blocking was verified with all four controls enabled:
-  - `BlockPublicAcls = true`
-  - `IgnorePublicAcls = true`
-  - `BlockPublicPolicy = true`
-  - `RestrictPublicBuckets = true`
+- S3 bucket public-access blocking was verified with all four controls enabled.
 - The SNS email value was supplied locally through `TF_VAR_notification_email` rather than committed to source control.
 
 The public HTTP API was intentionally unauthenticated for controlled testing; authentication, WAF, stronger schema validation, and idempotency controls remain production hardening items.
@@ -236,31 +232,13 @@ The public HTTP API was intentionally unauthenticated for controlled testing; au
 
 The AWS environment is defined with **Terraform** rather than relying on manual console creation.
 
-```text
-Write Terraform
-     |
-     v
-terraform fmt / validate
-     |
-     v
-terraform plan
-     |
-     v
-terraform apply
-     |
-     v
-Verify runtime behavior in AWS
-```
-
 Before cleanup, a final Terraform plan returned:
 
 ```text
 No changes. Your infrastructure matches the configuration.
 ```
 
-This confirmed the deployed AWS environment matched the Terraform configuration at the end of runtime testing.
-
-After evidence collection, `terraform plan -destroy` showed **24 resources to destroy**. Terraform removed the managed environment. The first destroy pass exposed a real S3 lifecycle issue: versioning preserved archived object versions, so AWS refused to delete the non-empty bucket. The object versions were explicitly removed, and a final destroy removed the remaining S3 bucket.
+After evidence collection, `terraform plan -destroy` showed **24 resources to destroy**. The first destroy pass exposed a real S3 lifecycle issue: versioning preserved archived object versions, so AWS refused to delete the non-empty bucket. The object versions were explicitly removed, and a final destroy removed the remaining S3 bucket.
 
 A subsequent normal `terraform plan` showed **24 resources to add**, which is expected after teardown because the Terraform code remains while the managed infrastructure no longer exists.
 
@@ -268,22 +246,15 @@ A subsequent normal `terraform plan` showed **24 resources to add**, which is ex
 
 Verified after teardown:
 
-- No MADAR Lambda functions returned by the CLI check.
-- No MADAR SQS queues returned by the CLI check.
-- No `madar-*` DynamoDB tables returned.
-- No MADAR SNS topics returned.
-- No MADAR CloudWatch metric alarms returned.
+- No MADAR Lambda functions remained.
+- No MADAR SQS queues remained.
+- No `madar-*` DynamoDB tables remained.
+- No MADAR SNS topics remained.
+- No MADAR CloudWatch metric alarms remained.
 - The versioned S3 archive bucket was emptied and destroyed successfully.
-- AWS Bills for August 2026 showed **Estimated grand total: USD 0.00** at the time of the final review.
-
-Service-created Lambda CloudWatch log groups are not Terraform-managed in the current configuration, so they require one explicit final residual check before the cleanup record is closed completely.
-
-## Primary Technologies
-
-**AWS:** API Gateway, Lambda, SQS, DynamoDB, S3, SNS, CloudWatch, IAM  
-**Infrastructure as Code:** Terraform  
-**Application code:** Python 3.13  
-**Source control:** Git + GitHub
+- Service-created Lambda CloudWatch log groups `/aws/lambda/madar-producer` and `/aws/lambda/madar-worker` were explicitly deleted.
+- A follow-up Lambda log-group query returned `[]`.
+- AWS Bills for August 2026 showed **Estimated grand total: USD 0.00** at the time of final review.
 
 ## Engineering Outcomes
 
@@ -299,18 +270,15 @@ Service-created Lambda CloudWatch log groups are not Terraform-managed in the cu
 - Managed the environment reproducibly with Terraform.
 - Verified zero Terraform drift before teardown.
 - Exercised a complete infrastructure teardown, including recovery from a versioned-S3 deletion failure.
+- Removed service-created residual Lambda log groups.
 - Verified the account's estimated bill remained USD 0.00 at final review time.
-
-## Final Housekeeping
-
-Before labeling Phase 2 `COMPLETED — VERIFIED — CLEANED UP`, perform one final check for service-created Lambda CloudWatch log groups and delete them if they remain. No additional runtime feature testing is required.
 
 ## Documentation
 
 - [`docs/business-problem.md`](docs/business-problem.md) — business case and success criteria
 - [`docs/architecture.md`](docs/architecture.md) — implemented architecture and technical reasoning
 - [`docs/implementation-checklist.md`](docs/implementation-checklist.md) — build and cleanup checklist
-- [`docs/progress.md`](docs/progress.md) — current implementation and cleanup status
+- [`docs/progress.md`](docs/progress.md) — implementation and final cleanup status
 - [`docs/testing-verification.md`](docs/testing-verification.md) — runtime, failure, recovery, burst, and cleanup tests
 - [`docs/security.md`](docs/security.md) — verified controls and remaining hardening
 - [`docs/cost-cleanup.md`](docs/cost-cleanup.md) — cost guardrails and cleanup record
