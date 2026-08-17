@@ -11,13 +11,13 @@
 
 ## Project Status
 
-**IN PROGRESS — core serverless pipeline deployed with Terraform and the primary happy path verified end-to-end. Failure/DLQ, burst/scaling, SNS delivery, alarms, security review, and cleanup verification remain.**
+**IN PROGRESS — core serverless pipeline, SNS email delivery, and DLQ failure handling are verified. Burst/scaling, CloudWatch alarms, security review, final architecture documentation, and cleanup remain.**
 
 ## Business Problem
 
 Madar needs to accept bursty customer/background work without coupling request intake to processing capacity. A synchronous backend can overload, time out, or require expensive always-on capacity sized for peak demand.
 
-The solution uses a serverless asynchronous pipeline to buffer jobs, process them independently, persist status, archive results, and isolate repeated failures.
+The solution uses a serverless asynchronous pipeline to buffer jobs, process them independently, persist status, archive results, notify operators, and isolate repeatedly failing work.
 
 ## Implemented Architecture
 
@@ -41,20 +41,21 @@ Worker Lambda
   |
   +--> DynamoDB (PROCESSED state)
   +--> S3 (processed event archive)
-  +--> SNS (notification integration configured)
+  +--> SNS -> Email notification
   |
   v
 CloudWatch Logs
 
 Repeated processing failure
   |
+  | maxReceiveCount = 3
   v
 SQS Dead-Letter Queue
 ```
 
 ## Verified Happy Path
 
-A real HTTPS request was submitted to `POST /jobs`. API Gateway invoked the producer Lambda and returned `Job accepted` with a generated event ID. The event was queued in SQS, consumed by the worker Lambda, updated to `PROCESSED` in DynamoDB, and archived as JSON in S3. CloudWatch recorded the worker invocation.
+A real HTTPS request was submitted to `POST /jobs`. API Gateway invoked the producer Lambda and returned `Job accepted` with a generated event ID. The event was queued in SQS, consumed by the worker Lambda, updated to `PROCESSED` in DynamoDB, archived as JSON in S3, and a processing notification was delivered by SNS to a confirmed email subscription. CloudWatch recorded the worker invocation.
 
 Verified components:
 
@@ -63,11 +64,25 @@ Verified components:
 - SQS → Worker Lambda event source mapping
 - Worker Lambda → DynamoDB (`PROCESSED`)
 - Worker Lambda → S3 processed-event archive
+- Worker Lambda → SNS → confirmed email delivery
 - Worker Lambda execution visible in CloudWatch Logs
-- SQS main queue configured with a DLQ and `maxReceiveCount = 3`
-- Least-privilege application IAM permissions implemented for the producer and worker
+- Least-privilege application IAM permissions implemented for producer and worker
 
-SNS integration is configured, but notification delivery has not yet been independently verified. Retry/DLQ behavior and recovery testing are also still pending.
+## Verified Failure Handling
+
+A controlled worker failure was injected specifically for testing. The same SQS message was delivered to the worker three times and failed each time with an intentional exception. After reaching `maxReceiveCount = 3`, the message was moved to `madar-processing-dlq`.
+
+This verifies the behavior, not just the configuration:
+
+```text
+SQS message
+  -> Worker attempt 1 FAILED
+  -> Worker attempt 2 FAILED
+  -> Worker attempt 3 FAILED
+  -> DLQ
+```
+
+CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message.
 
 ## Runtime Evidence
 
@@ -86,6 +101,18 @@ SNS integration is configured, but notification delivery has not yet been indepe
 ### API Gateway POST /jobs route
 
 ![API Gateway POST jobs](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/api-gateway-post-jobs.png)
+
+### SNS subscription confirmed
+
+![SNS subscription confirmed](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/sns-subscription-confirmed.png)
+
+### SNS job-processed email
+
+![SNS job processed email](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/sns-job-processed-email.png)
+
+### DLQ message after three failed receives
+
+![DLQ message after three failures](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/dlq-message-after-3-failures.png)
 
 ## Infrastructure as Code
 
@@ -149,9 +176,10 @@ Terraform currently manages the project's API Gateway, Lambda functions, SQS/DLQ
 - Asynchronous/event-driven processing
 - Decoupling with SQS
 - Serverless compute with Lambda
-- Dead-letter queue design
+- Verified retry and dead-letter queue behavior
 - Persistent job state with DynamoDB
 - Result archival with S3
+- SNS email notification delivery
 - Infrastructure as Code with Terraform
 - Least-privilege IAM
 - HTTPS API entry point
@@ -162,13 +190,11 @@ Terraform currently manages the project's API Gateway, Lambda functions, SQS/DLQ
 
 Before this portfolio project is marked complete, the remaining work includes:
 
-- Verify SNS notification delivery
-- Inject failures and verify three receives followed by DLQ routing
-- Verify DLQ recovery/redrive behavior
 - Run burst/scaling tests
 - Complete CloudWatch metrics/alarms verification
 - Complete security review
 - Update architecture with final measured behavior
+- Decide whether to perform a dedicated DLQ redrive/recovery test
 - Run `terraform destroy` when the lab is complete
 - Verify no residual resources and perform final billing check
 
