@@ -1,117 +1,127 @@
-# Testing and Verification Plan
+# Testing and Verification
 
-## Evidence Rule
+## Verification Rule
 
-Record **observed** values, timestamps, request counts, queue metrics, Lambda metrics, and results. Do not replace actual tests with theoretical statements.
+Record **observed** values, request counts, runtime states, metrics, and outcomes. Do not replace actual tests with theoretical claims.
 
 ## 1. Terraform Verification
 
-- [ ] `terraform fmt -check -recursive` passes.
-- [ ] `terraform validate` passes.
-- [ ] `terraform plan` contains only expected resources/changes.
-- [ ] `terraform apply` completes successfully.
-- [ ] Terraform outputs return the expected API endpoint and resource identifiers.
-- [ ] AWS Console inspection matches the planned infrastructure.
+- [x] `terraform fmt` completed.
+- [x] `terraform validate` passed.
+- [x] Terraform plans were reviewed before apply.
+- [x] Terraform applies completed successfully.
+- [x] Final Terraform plan returned `No changes`.
 
 ## 2. Happy-Path End-to-End Test
 
-- [ ] Submit one valid API request.
-- [ ] Record HTTP response code and returned job ID.
-- [ ] Confirm producer Lambda invocation.
-- [ ] Confirm work is published to SQS.
-- [ ] Confirm worker Lambda consumes the message.
-- [ ] Confirm DynamoDB state transitions through expected statuses.
-- [ ] Confirm S3 result where used.
-- [ ] Confirm SNS notification where used.
-- [ ] Confirm CloudWatch logs can trace the same job ID end to end.
+- [x] Submitted a valid HTTPS `POST /jobs` request.
+- [x] Received `Job accepted` with a generated event ID.
+- [x] Confirmed producer Lambda execution.
+- [x] Confirmed work reached SQS.
+- [x] Confirmed worker Lambda consumed the message.
+- [x] Confirmed DynamoDB status reached `PROCESSED`.
+- [x] Confirmed processed JSON was archived in S3.
+- [x] Confirmed SNS success notification reached the subscribed email.
+- [x] Confirmed worker execution in CloudWatch Logs.
 
-Expected logical path:
+Verified logical path:
 
 ```text
 API Gateway
  -> Producer Lambda
  -> SQS
  -> Worker Lambda
- -> DynamoDB/S3
+ -> DynamoDB
+ -> S3
  -> SNS
 ```
 
-## 3. Invalid Input Test
+## 3. Retry and DLQ Test
 
-- [ ] Send malformed or missing required input.
-- [ ] Verify producer rejects it.
-- [ ] Verify rejected input is not placed on SQS.
-- [ ] Verify response does not expose stack traces or sensitive details.
+A controlled failure condition was temporarily added to the worker for a test payload.
 
-## 4. Retry and DLQ Test
-
-- [ ] Submit deterministic failure job.
-- [ ] Observe repeated worker failure.
-- [ ] Record receive-attempt behavior.
-- [ ] Confirm the message reaches the DLQ after configured retries.
-- [ ] Confirm the failed job remains traceable.
-- [ ] Confirm the DLQ alarm triggers where practical.
-
-Expected failure path:
+Observed behavior:
 
 ```text
-SQS
- -> Worker Lambda
- -> failure
- -> retry
- -> retry limit
- -> DLQ
- -> CloudWatch alarm
- -> SNS notification
+Worker attempt 1 -> FAILED
+Worker attempt 2 -> FAILED
+Worker attempt 3 -> FAILED
+DLQ              -> 1 visible message
 ```
 
-## 5. Recovery / Replay Test
+- [x] Submitted deterministic failure job.
+- [x] Observed three failed worker invocations in CloudWatch Logs.
+- [x] Confirmed the message moved to the DLQ after `maxReceiveCount = 3`.
+- [x] Confirmed the DLQ contained one available message.
+- [x] Confirmed `madar-dlq-messages` entered `ALARM` state.
+- [x] Removed temporary failure logic and redeployed normal worker code.
 
-- [ ] Identify failed test message safely.
-- [ ] Document why it failed.
-- [ ] Correct the deterministic failure condition or use a known-success payload.
-- [ ] Replay/redrive one test message if practical.
-- [ ] Verify final job success after recovery.
+## 4. Recovery / Redrive Test
 
-## 6. Burst Test
+- [ ] Dedicated DLQ redrive/recovery verification remains optional and has not been claimed as completed.
 
-- [ ] Submit a documented number of requests quickly.
-- [ ] Record request count.
-- [ ] Observe SQS `ApproximateNumberOfMessagesVisible`.
-- [ ] Observe Lambda Invocations/ConcurrentExecutions where available.
-- [ ] Record processing completion time.
-- [ ] Verify no successful job is lost.
-- [ ] Verify final DynamoDB job states are consistent.
+The existing DLQ test verifies failure isolation. It does not claim successful replay of the failed message.
 
-Do not claim a specific throughput until it has been measured.
+## 5. Burst / Scaling Test
 
-## 7. Security Verification
+### 30 concurrent requests
 
-- [ ] S3 public access is blocked.
-- [ ] Producer/worker IAM roles are separate and scoped.
-- [ ] GitHub contains no Terraform state, credentials, or tokens.
-- [ ] Logs contain no accidental secrets.
+Observed:
+
+- Account Lambda concurrency limit: `10`.
+- Some requests returned `Job accepted`.
+- Some requests returned `Service Unavailable`.
+- CloudWatch recorded **15 throttles** on `madar-producer`.
+- Producer logs showed multiple execution environments starting concurrently.
+
+### 8 concurrent requests
+
+Observed:
+
+- **8/8 requests returned `Job accepted`.**
+- Producer `Throttles` metric reported **0** in the test window.
+
+Conclusion: current account concurrency quota is the practical burst constraint. Larger expected production bursts would require quota planning and possibly additional request controls.
+
+## 6. Security Verification
+
+- [x] Producer and worker use separate IAM roles.
+- [x] Application IAM policies use resource-specific permissions where supported.
+- [x] S3 Block Public Access verified with all four controls enabled.
+- [x] SNS email value supplied locally instead of committed to source.
+- [x] Terraform state and generated deployment artifacts excluded from GitHub.
+
+## 7. Observability Verification
+
+- [x] CloudWatch worker logs observed for successful invocation.
+- [x] CloudWatch worker logs observed for controlled failures.
+- [x] Producer `Throttles` metric used to diagnose burst behavior.
+- [x] Producer-throttling metric alarm deployed.
+- [x] DLQ-visible-message alarm deployed.
+- [x] DLQ alarm verified in `ALARM` state.
 
 ## 8. Cleanup Verification
 
-- [ ] `terraform destroy` completes.
-- [ ] Terraform state reports no remaining managed resources.
-- [ ] AWS Console checks confirm no unexpected project resources remain.
-- [ ] Billing/Cost Explorer is reviewed after cleanup.
+- [ ] Run `terraform plan -destroy` when the live environment is ready to be removed.
+- [ ] Run `terraform destroy`.
+- [ ] Confirm Terraform-managed resources are removed.
+- [ ] Review service-created CloudWatch log groups and other residual resources.
+- [ ] Review AWS Billing/Cost after cleanup.
 
-## Evidence to Capture
+## Evidence Captured
 
-Capture only portfolio-quality evidence:
+Evidence is stored under `evidence/Screenshots/` and covers:
 
-- Terraform validation/plan summary
-- API response with job ID
-- SQS queue/burst metric
-- Lambda structured log with job ID
-- DynamoDB job state
-- S3 output if used
-- DLQ message/failure path
-- CloudWatch alarm/metric
-- Final successful result
-- Final Billing/cleanup verification
+- API Gateway route
+- Lambda SQS trigger
+- DynamoDB processed state
+- S3 processed archive
+- SNS subscription and delivery
+- DLQ after three failures
+- Lambda burst throttling
+- successful 8-request burst with zero throttles
+- CloudWatch DLQ alarm
+- worker IAM policy
+- S3 public-access block
 
-Screenshots belong in `evidence/`. The final README should embed only the strongest images rather than every screenshot.
+The README embeds the strongest runtime and operational evidence rather than every intermediate console screen.
