@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**IN PROGRESS — local Infrastructure as Code tooling is installed and AWS CLI authentication has been verified. Ready to open the repository in VS Code and begin Terraform fundamentals and implementation.**
+**IN PROGRESS — core MADAR serverless infrastructure is deployed with Terraform and the primary happy path has been verified end-to-end. Failure/DLQ, SNS delivery, burst/scaling, alarms, security review, and cleanup remain.**
 
 ## Progress Rules
 
@@ -16,87 +16,132 @@
 
 - [x] Business problem defined
 - [x] Planned architecture documented
-- [x] Terraform selected as the Infrastructure as Code tool
+- [x] Terraform selected as Infrastructure as Code tool
 - [x] Terraform repository structure prepared
-- [x] Complete implementation checklist prepared
 - [x] Testing/failure/recovery plan prepared
 - [x] Security checklist prepared
 - [x] Cost and cleanup plan prepared
-- [x] Terraform installed and verified locally — Terraform v1.15.8
-- [x] Visual Studio Code installed — VS Code v1.132.0
-- [x] AWS CLI v2 installed and verified — AWS CLI v2.36.21
-- [x] AWS CLI default region selected — us-east-1
-- [x] AWS CLI authenticated using `aws login` with temporary session credentials
+- [x] Terraform installed and verified locally
+- [x] Visual Studio Code installed and repository opened
+- [x] AWS CLI v2 installed and verified
+- [x] AWS CLI default region selected — `us-east-1`
+- [x] AWS CLI authenticated using `aws login`
 - [x] AWS identity verified using `aws sts get-caller-identity`
 - [x] Long-term IAM access key creation intentionally avoided
-- [ ] Repository opened in VS Code
-- [ ] Terraform fundamentals reviewed
-- [ ] Terraform provider initialized
-- [ ] Terraform core resources implemented
-- [ ] Terraform validation and first plan reviewed
-- [ ] First infrastructure deployment completed
-- [ ] Happy-path runtime verified
+- [x] Terraform provider initialized
+- [x] Terraform configuration formatted and validated
+- [x] SQS main queue and DLQ deployed
+- [x] DynamoDB table deployed
+- [x] S3 archive bucket deployed with versioning/public-access protection
+- [x] Producer and worker IAM roles/policies deployed
+- [x] SNS topic deployed and worker publish permission configured
+- [x] Producer and worker Lambda functions deployed
+- [x] SQS → Worker Lambda event source mapping verified
+- [x] API Gateway HTTP API and `POST /jobs` route deployed
+- [x] API Gateway → Producer Lambda integration deployed
+- [x] Primary happy-path runtime verified
+- [x] DynamoDB `PROCESSED` state verified
+- [x] S3 processed-event archive verified
+- [x] Worker execution verified in CloudWatch Logs
+- [x] Portfolio screenshots captured and committed
+- [ ] SNS notification delivery independently verified
 - [ ] Retry behavior verified
 - [ ] DLQ behavior verified
+- [ ] DLQ recovery/redrive verified
 - [ ] Burst/scaling behavior verified
-- [ ] CloudWatch/SNS monitoring verified
+- [ ] CloudWatch alarms verified
 - [ ] Security review completed
-- [ ] Portfolio evidence curated
-- [ ] Architecture updated from planned to actual
+- [ ] Architecture updated with final measured results
 - [ ] Terraform destroy completed
 - [ ] Residual-resource check completed
 - [ ] Final AWS billing check completed
 - [ ] Project marked COMPLETED
 
-## Planned Implementation Sequence
+## Verified Runtime Path
 
 ```text
-Tooling
- -> Terraform fundamentals
- -> SQS/DLQ + DynamoDB + S3
- -> IAM
- -> Lambda code
- -> Lambda infrastructure
- -> API Gateway
- -> SNS/CloudWatch
- -> terraform plan/apply
- -> happy path
- -> failure + DLQ
- -> recovery
- -> burst test
- -> security review
- -> evidence
- -> destroy + billing check
+PowerShell client
+  -> HTTPS POST /jobs
+  -> API Gateway
+  -> Producer Lambda
+  -> SQS
+  -> Worker Lambda
+  -> DynamoDB status = PROCESSED
+  -> S3 processed JSON archive
+  -> CloudWatch execution logs
 ```
 
-## Decisions Made Before Implementation
+A real request returned `Job accepted` and an event ID. The same event ID was subsequently found in DynamoDB with status `PROCESSED`, and a JSON object with that event ID was found under the S3 `processed/` prefix.
 
-- Terraform will be learned and used from the start of this project.
-- AWS Console remains part of the workflow for inspection and runtime verification.
-- The first Terraform implementation will use a readable root-module structure rather than advanced modules.
-- Python will be used for Lambda functions.
-- Runtime evidence matters more than screenshots of resource-creation forms.
-- Failure and DLQ behavior are mandatory portfolio evidence, not optional extras.
-- Production recommendations must be separated clearly from implemented features.
-- Local AWS authentication uses `aws login` temporary credentials rather than a long-lived IAM access key.
-- No AWS credentials will be stored in Terraform files or committed to GitHub.
+## Current Resource State
 
-## Running Notes
+| Component | State | Evidence |
+|---|---|---|
+| API Gateway HTTP API | VERIFIED | `POST /jobs` accepted a real HTTPS request |
+| Producer Lambda | VERIFIED | API request returned `Job accepted` and event ID |
+| SQS main queue | VERIFIED | Event reached worker through SQS event source mapping |
+| SQS DLQ | CONFIGURED | Redrive policy enabled, maximum receives = 3 |
+| Worker Lambda | VERIFIED | SQS trigger enabled and CloudWatch invocation recorded |
+| DynamoDB | VERIFIED | Test event reached `PROCESSED` |
+| S3 | VERIFIED | Processed event JSON archived successfully |
+| SNS | CONFIGURED | Topic and worker publish permission exist; delivery test pending |
+| CloudWatch Logs | VERIFIED | Worker START/END/REPORT invocation data observed |
+| CloudWatch alarms | PLANNED | Verification pending |
+| IAM | CONFIGURED | Producer/worker least-privilege application permissions implemented; final review pending |
 
-### 2026-08-17 — Local Development Environment
+## 2026-08-17 — Implementation and Happy-Path Verification
 
-Completed the local workstation setup for the MADAR project:
+Completed:
 
-1. Installed and verified Terraform v1.15.8 on Windows.
-2. Installed Visual Studio Code v1.132.0 for Terraform and application development.
-3. Installed and verified AWS CLI v2.36.21.
-4. Configured the working AWS Region as `us-east-1`.
-5. Reviewed the IAM access-key workflow but did not create a long-term access key.
-6. Used the AWS CLI `aws login` browser-based authentication flow instead.
-7. Received temporary local AWS credentials for the authenticated IAM session.
-8. Verified programmatic AWS connectivity and caller identity with `aws sts get-caller-identity`.
-9. No MADAR AWS project resources have been created yet and no infrastructure deployment is claimed at this stage.
+1. Cloned and opened the repository in VS Code.
+2. Initialized Terraform and installed the AWS provider plus archive provider.
+3. Deployed `madar-processing-queue` and `madar-processing-dlq`.
+4. Verified the SQS redrive policy points to the DLQ with `maxReceiveCount = 3`.
+5. Deployed the `madar-events` DynamoDB table using on-demand capacity.
+6. Deployed the S3 processed-event archive bucket with versioning and public-access blocking.
+7. Created separate producer and worker Lambda IAM roles.
+8. Added application permissions for SQS, DynamoDB, S3, and SNS as required by each function.
+9. Deployed `madar-producer` and `madar-worker` using Python 3.13.
+10. Connected the SQS main queue to `madar-worker` with batch size 1.
+11. Deployed the `madar-api` API Gateway HTTP API with `POST /jobs`.
+12. Connected API Gateway to `madar-producer` using Lambda proxy integration.
+13. Sent a real HTTPS POST request from PowerShell and received `Job accepted` with an event ID.
+14. Verified the event reached DynamoDB with status `PROCESSED`.
+15. Verified the corresponding JSON object was archived under the S3 `processed/` prefix.
+16. Verified the worker invocation in CloudWatch Logs, including START, END, REPORT, duration, and memory data.
+17. Captured portfolio screenshots for API Gateway, Lambda/SQS, DynamoDB, and S3.
+18. Committed and pushed the Terraform, Lambda code, dependency lock file, and evidence screenshots to GitHub.
 
-### Pre-Implementation
+## Evidence Captured
 
-Repository planning, documentation, Terraform scaffold, testing plan, security plan, and cleanup plan were prepared before deployment.
+- `evidence/Screenshots/lambda-worker-sqs-trigger.png`
+- `evidence/Screenshots/dynamodb-processed-event.png`
+- `evidence/Screenshots/s3-processed-event-archive.png`
+- `evidence/Screenshots/api-gateway-post-jobs.png`
+
+## Next Work
+
+```text
+SNS delivery verification
+  -> controlled worker failure
+  -> retry count verification
+  -> DLQ verification
+  -> redrive/recovery
+  -> burst/scaling test
+  -> CloudWatch alarms
+  -> security review
+  -> final architecture/results documentation
+  -> terraform destroy
+  -> residual-resource + billing verification
+```
+
+## Decisions and Notes
+
+- Terraform remains the source of truth for infrastructure changes.
+- AWS Console is used for inspection and evidence, not as the primary provisioning mechanism.
+- Runtime evidence is required before a component is marked `VERIFIED`.
+- `aws login` temporary authentication is used instead of long-lived IAM access keys.
+- Terraform state, generated ZIP packages, and local `.terraform/` data are excluded from GitHub.
+- `.terraform.lock.hcl` is committed so provider selections are reproducible.
+- SNS is not marked verified merely because the worker has `sns:Publish`; delivery must be tested separately.
+- DLQ is not marked verified merely because the redrive policy exists; an actual repeated-failure test is required.
