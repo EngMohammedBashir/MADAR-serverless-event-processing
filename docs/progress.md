@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**IN PROGRESS — core MADAR serverless infrastructure is deployed with Terraform and the primary happy path has been verified end-to-end. Failure/DLQ, SNS delivery, burst/scaling, alarms, security review, and cleanup remain.**
+**IN PROGRESS — core MADAR serverless infrastructure is deployed with Terraform. Happy-path processing, SNS email delivery, and three-attempt DLQ failure handling have been verified. Burst/scaling, alarms, security review, final architecture documentation, and cleanup remain.**
 
 ## Progress Rules
 
@@ -35,6 +35,7 @@
 - [x] S3 archive bucket deployed with versioning/public-access protection
 - [x] Producer and worker IAM roles/policies deployed
 - [x] SNS topic deployed and worker publish permission configured
+- [x] SNS email subscription created and confirmed
 - [x] Producer and worker Lambda functions deployed
 - [x] SQS → Worker Lambda event source mapping verified
 - [x] API Gateway HTTP API and `POST /jobs` route deployed
@@ -43,10 +44,11 @@
 - [x] DynamoDB `PROCESSED` state verified
 - [x] S3 processed-event archive verified
 - [x] Worker execution verified in CloudWatch Logs
+- [x] SNS notification delivery independently verified
+- [x] Controlled worker failure injected for DLQ testing
+- [x] Retry behavior verified — three failed worker invocations observed
+- [x] DLQ behavior verified — message moved to DLQ after three receives
 - [x] Portfolio screenshots captured and committed
-- [ ] SNS notification delivery independently verified
-- [ ] Retry behavior verified
-- [ ] DLQ behavior verified
 - [ ] DLQ recovery/redrive verified
 - [ ] Burst/scaling behavior verified
 - [ ] CloudWatch alarms verified
@@ -68,28 +70,44 @@ PowerShell client
   -> Worker Lambda
   -> DynamoDB status = PROCESSED
   -> S3 processed JSON archive
+  -> SNS email notification
   -> CloudWatch execution logs
 ```
 
-A real request returned `Job accepted` and an event ID. The same event ID was subsequently found in DynamoDB with status `PROCESSED`, and a JSON object with that event ID was found under the S3 `processed/` prefix.
+A real request returned `Job accepted` and an event ID. The same event ID was subsequently found in DynamoDB with status `PROCESSED`, a JSON object with that event ID was found under the S3 `processed/` prefix, and SNS delivered a processing-success email.
+
+## Verified Failure Path
+
+```text
+Controlled failing job
+  -> SQS
+  -> Worker attempt 1 FAILED
+  -> Worker attempt 2 FAILED
+  -> Worker attempt 3 FAILED
+  -> SQS DLQ
+```
+
+CloudWatch Logs showed three separate worker invocations failing with the intentional DLQ-test exception. The DLQ then reported one available message, confirming that the configured `maxReceiveCount = 3` was exercised successfully.
+
+The temporary failure condition was removed from the worker after the test and the normal worker code was redeployed.
 
 ## Current Resource State
 
 | Component | State | Evidence |
 |---|---|---|
-| API Gateway HTTP API | VERIFIED | `POST /jobs` accepted a real HTTPS request |
+| API Gateway HTTP API | VERIFIED | `POST /jobs` accepted real HTTPS requests |
 | Producer Lambda | VERIFIED | API request returned `Job accepted` and event ID |
-| SQS main queue | VERIFIED | Event reached worker through SQS event source mapping |
-| SQS DLQ | CONFIGURED | Redrive policy enabled, maximum receives = 3 |
-| Worker Lambda | VERIFIED | SQS trigger enabled and CloudWatch invocation recorded |
+| SQS main queue | VERIFIED | Events reached worker through SQS event source mapping |
+| SQS DLQ | VERIFIED | Controlled message failed three worker receives and moved to DLQ |
+| Worker Lambda | VERIFIED | Success and controlled-failure executions observed in CloudWatch |
 | DynamoDB | VERIFIED | Test event reached `PROCESSED` |
 | S3 | VERIFIED | Processed event JSON archived successfully |
-| SNS | CONFIGURED | Topic and worker publish permission exist; delivery test pending |
-| CloudWatch Logs | VERIFIED | Worker START/END/REPORT invocation data observed |
+| SNS | VERIFIED | Confirmed subscription received worker success notification |
+| CloudWatch Logs | VERIFIED | Success and three controlled failure invocations observed |
 | CloudWatch alarms | PLANNED | Verification pending |
 | IAM | CONFIGURED | Producer/worker least-privilege application permissions implemented; final review pending |
 
-## 2026-08-17 — Implementation and Happy-Path Verification
+## 2026-08-17 — Implementation and Verification
 
 Completed:
 
@@ -108,9 +126,15 @@ Completed:
 13. Sent a real HTTPS POST request from PowerShell and received `Job accepted` with an event ID.
 14. Verified the event reached DynamoDB with status `PROCESSED`.
 15. Verified the corresponding JSON object was archived under the S3 `processed/` prefix.
-16. Verified the worker invocation in CloudWatch Logs, including START, END, REPORT, duration, and memory data.
-17. Captured portfolio screenshots for API Gateway, Lambda/SQS, DynamoDB, and S3.
-18. Committed and pushed the Terraform, Lambda code, dependency lock file, and evidence screenshots to GitHub.
+16. Verified the worker invocation in CloudWatch Logs.
+17. Added an SNS email subscription through Terraform without storing the email in repository code.
+18. Confirmed the SNS email subscription manually.
+19. Sent a second real job and verified receipt of the SNS `MADAR Job Processed` email.
+20. Added a temporary controlled failure condition to the worker solely for DLQ testing.
+21. Sent a failing job and observed three separate failed worker invocations in CloudWatch Logs.
+22. Verified the failed message moved to `madar-processing-dlq` and the DLQ reported one available message.
+23. Removed the temporary controlled-failure code and redeployed the normal worker implementation.
+24. Captured and committed portfolio evidence for API Gateway, Lambda/SQS, DynamoDB, S3, SNS, and DLQ behavior.
 
 ## Evidence Captured
 
@@ -118,15 +142,14 @@ Completed:
 - `evidence/Screenshots/dynamodb-processed-event.png`
 - `evidence/Screenshots/s3-processed-event-archive.png`
 - `evidence/Screenshots/api-gateway-post-jobs.png`
+- `evidence/Screenshots/sns-subscription-confirmed.png`
+- `evidence/Screenshots/sns-job-processed-email.png`
+- `evidence/Screenshots/dlq-message-after-3-failures.png`
 
 ## Next Work
 
 ```text
-SNS delivery verification
-  -> controlled worker failure
-  -> retry count verification
-  -> DLQ verification
-  -> redrive/recovery
+Optional DLQ redrive/recovery test
   -> burst/scaling test
   -> CloudWatch alarms
   -> security review
@@ -143,5 +166,6 @@ SNS delivery verification
 - `aws login` temporary authentication is used instead of long-lived IAM access keys.
 - Terraform state, generated ZIP packages, and local `.terraform/` data are excluded from GitHub.
 - `.terraform.lock.hcl` is committed so provider selections are reproducible.
-- SNS is not marked verified merely because the worker has `sns:Publish`; delivery must be tested separately.
-- DLQ is not marked verified merely because the redrive policy exists; an actual repeated-failure test is required.
+- The SNS email address is supplied locally through `TF_VAR_notification_email` rather than committed to Terraform source.
+- DLQ is marked verified only because an actual controlled failure exercised three receives and moved a message into the DLQ.
+- A dedicated DLQ redrive/recovery test has not yet been claimed as verified.
