@@ -58,6 +58,10 @@ terraform destroy
       v
 Residual-resource checks
       |
+      +--> service-created Lambda log groups found
+      +--> log groups deleted explicitly
+      +--> follow-up query returned []
+      |
       v
 AWS Billing review
 ```
@@ -76,9 +80,11 @@ AWS Billing review
 - [x] `madar-*` DynamoDB table check returned `[]`.
 - [x] MADAR SNS topic check returned `[]`.
 - [x] MADAR CloudWatch metric alarm check returned `[]`.
+- [x] Service-created log groups `/aws/lambda/madar-producer` and `/aws/lambda/madar-worker` identified.
+- [x] Both service-created Lambda log groups deleted.
+- [x] Follow-up `/aws/lambda/madar-` log-group query returned `[]`.
 - [x] AWS Bills reviewed after teardown.
 - [x] Estimated grand total recorded as `USD 0.00` at review time.
-- [ ] Explicitly inspect/remove service-created Lambda CloudWatch log groups.
 
 ## S3 Versioning Cleanup Lesson
 
@@ -106,12 +112,8 @@ The listed Phase 2 services, including API Gateway, CloudWatch, DynamoDB, Lambda
 
 No billing screenshot is stored because the billing result is documented textually and no image was required.
 
-## Important Terraform Note
+## Final Status
 
-`terraform destroy` removes resources Terraform manages and can successfully delete. It does not automatically cover every service-created artifact.
+**COMPLETED — VERIFIED — CLEANED UP.**
 
-The current configuration does not manage Lambda CloudWatch log groups explicitly, so those log groups require a separate residual check after Lambda deletion.
-
-## Current Status
-
-Terraform-managed infrastructure has been removed and the final billing review is complete. One housekeeping check remains: verify whether `/aws/lambda/madar-*` log groups remain and delete them if present.
+Terraform-managed resources were removed, versioned S3 data was cleared so the bucket could be deleted, service-created Lambda CloudWatch log groups were explicitly removed, the final residual log-group query returned `[]`, and the billing review showed an estimated grand total of `USD 0.00`.
