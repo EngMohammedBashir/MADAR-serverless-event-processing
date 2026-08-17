@@ -5,19 +5,46 @@
 
 ## Company Context
 
-**Madar (مدار)** is a fictional growing digital commerce company used as a continuous business case across this cloud engineering portfolio.
+**Madar (مدار)** is a fictional growing digital commerce company used as one continuous business story across this cloud engineering portfolio.
+
+The portfolio follows Madar as if we are its cloud engineering team: we start with a growing company, move its capabilities into the cloud step by step, discover real operational problems, and solve each problem with an architecture that can be implemented, tested, measured, and improved.
 
 > **Portfolio note:** Madar is fictional. The architecture, implementation, testing, troubleshooting, and evidence in this repository are real hands-on portfolio work.
 
+### Madar Cloud Transformation Journey
+
+```text
+Company growth
+   |
+   v
+Need reliable cloud infrastructure
+   |
+   +--> Phase 1: Highly Available AWS Web Architecture
+   |
+   v
+Background work starts creating reliability problems
+   |
+   +--> Phase 2: Serverless Event-Driven Processing  <-- THIS PROJECT
+   |
+   v
+Future transformation phases
+   +--> CI/CD automation
+   +--> Security & threat detection
+   +--> Workforce identity / SSO
+   +--> Legacy workload migration
+```
+
+The goal is not to collect AWS services. Each phase represents a realistic problem Madar encounters while moving deeper into the cloud, followed by an engineering solution and runtime evidence.
+
 ## Project Status
 
-**IN PROGRESS — core serverless pipeline, SNS email delivery, and DLQ failure handling are verified. Burst/scaling, CloudWatch alarms, security review, final architecture documentation, and cleanup remain.**
+**CORE IMPLEMENTATION VERIFIED — the serverless pipeline, SNS notifications, retry/DLQ behavior, burst behavior, CloudWatch alarms, IAM least privilege, and S3 public-access protection have all been tested. Final documentation and cleanup/billing verification remain.**
 
 ## Business Problem
 
-Madar needs to accept bursty customer/background work without coupling request intake to processing capacity. A synchronous backend can overload, time out, or require expensive always-on capacity sized for peak demand.
+As Madar grows, customer requests and background jobs arrive in uneven bursts. A tightly coupled synchronous backend would force request intake and job processing to scale together, increasing the chance of timeouts, lost work, and expensive always-on capacity.
 
-The solution uses a serverless asynchronous pipeline to buffer jobs, process them independently, persist status, archive results, notify operators, and isolate repeatedly failing work.
+Madar therefore needs an asynchronous processing layer that can accept work quickly, buffer it safely, process it independently, retain failed jobs for investigation, and provide operational visibility.
 
 ## Implemented Architecture
 
@@ -44,7 +71,7 @@ Worker Lambda
   +--> SNS -> Email notification
   |
   v
-CloudWatch Logs
+CloudWatch Logs / Alarms
 
 Repeated processing failure
   |
@@ -72,8 +99,6 @@ Verified components:
 
 A controlled worker failure was injected specifically for testing. The same SQS message was delivered to the worker three times and failed each time with an intentional exception. After reaching `maxReceiveCount = 3`, the message was moved to `madar-processing-dlq`.
 
-This verifies the behavior, not just the configuration:
-
 ```text
 SQS message
   -> Worker attempt 1 FAILED
@@ -82,7 +107,53 @@ SQS message
   -> DLQ
 ```
 
-CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message.
+CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message. This proves the retry and failure-isolation behavior rather than only showing that a DLQ resource exists.
+
+## Burst and Scaling Test
+
+The pipeline was tested with concurrent requests to observe actual behavior under load.
+
+### 30 concurrent requests
+
+The account-level Lambda concurrency quota was `10`. During a 30-request burst, the producer attempted to scale out but CloudWatch recorded **15 throttled invocations**. Some requests therefore returned `Service Unavailable` before reaching SQS.
+
+This exposed a real capacity-planning constraint:
+
+```text
+30 concurrent requests
+  -> API Gateway
+  -> Producer Lambda scales out
+  -> account concurrency quota reached (10)
+  -> 15 producer throttles observed
+```
+
+### 8 concurrent requests
+
+The same test was repeated with 8 concurrent requests. All 8 returned `Job accepted`, and the producer recorded **0 throttles** during the test window.
+
+This demonstrates an important cloud-engineering lesson: the architecture can scale, but service quotas remain part of production capacity planning. A production deployment would request a higher Lambda concurrency quota based on expected load.
+
+## Operational Monitoring
+
+Two CloudWatch metric alarms are managed with Terraform:
+
+- `madar-producer-throttles` — detects producer Lambda throttling.
+- `madar-dlq-messages` — detects visible messages in the dead-letter queue.
+
+The DLQ alarm was verified in a real **In alarm** state while the controlled failed message remained in `madar-processing-dlq`.
+
+## Security Verification
+
+Security controls were reviewed after functional testing:
+
+- Producer IAM policy is scoped to the specific SQS queue and DynamoDB table required by the function.
+- Worker IAM policy is scoped to the required SQS queue, DynamoDB table, S3 object path, and SNS topic.
+- No broad `Resource = "*"` is used in the application IAM policies where resource-level permissions are supported.
+- S3 bucket public-access blocking was verified with all four controls enabled:
+  - `BlockPublicAcls = true`
+  - `IgnorePublicAcls = true`
+  - `BlockPublicPolicy = true`
+  - `RestrictPublicBuckets = true`
 
 ## Runtime Evidence
 
@@ -114,9 +185,29 @@ CloudWatch Logs captured all three failed invocations, and the DLQ subsequently 
 
 ![DLQ message after three failures](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/dlq-message-after-3-failures.png)
 
+### Producer burst throttling and account quota
+
+![Producer Lambda burst throttling](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/producer-lambda-burst-throttling.png)
+
+### Eight-request burst with zero throttles
+
+![Burst test with zero throttles](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/burst-test-8-requests-zero-throttles.png)
+
+### CloudWatch DLQ alarm
+
+![CloudWatch DLQ alarm](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/cloudwatch-dlq-alarm.png)
+
+### IAM least-privilege worker policy
+
+![IAM least privilege worker policy](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/iam-least-privilege-worker-policy.png)
+
+### S3 public-access protection
+
+![S3 public access block](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/s3-public-access-block.png)
+
 ## Infrastructure as Code
 
-The AWS environment is managed with **Terraform** rather than manually creating the project resources in the console.
+The AWS environment is managed with **Terraform** rather than manually creating project resources in the console.
 
 ```text
 Write Terraform
@@ -134,7 +225,15 @@ terraform apply
 Verify runtime behavior in AWS
 ```
 
-Terraform currently manages the project's API Gateway, Lambda functions, SQS/DLQ, DynamoDB, S3, SNS, IAM configuration, and supporting integrations. The dependency lock file is committed for reproducible provider selection, while Terraform state and generated deployment artifacts are excluded from source control.
+A final Terraform plan returned:
+
+```text
+No changes. Your infrastructure matches the configuration.
+```
+
+This confirms that the deployed AWS environment matches the current Terraform configuration.
+
+Terraform manages API Gateway, Lambda, SQS/DLQ, DynamoDB, S3, SNS, IAM, CloudWatch alarms, and supporting integrations. The dependency lock file is committed for reproducible provider selection, while Terraform state and generated deployment artifacts are excluded from source control.
 
 ## Primary Technologies
 
@@ -143,60 +242,31 @@ Terraform currently manages the project's API Gateway, Lambda functions, SQS/DLQ
 **Application code:** Python 3.13  
 **Source control:** Git + GitHub
 
-## Repository Structure
-
-```text
-.
-├── README.md
-├── .gitignore
-├── terraform/
-│   ├── .terraform.lock.hcl
-│   ├── versions.tf
-│   ├── providers.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   ├── api_gateway.tf
-│   ├── sqs.tf
-│   ├── lambda.tf
-│   ├── dynamodb.tf
-│   ├── s3.tf
-│   ├── sns.tf
-│   ├── cloudwatch.tf
-│   └── iam.tf
-├── lambda/
-│   ├── producer/handler.py
-│   └── worker/handler.py
-├── evidence/
-│   └── Screenshots/
-└── docs/
-```
-
 ## Engineering Principles Demonstrated
 
-- Asynchronous/event-driven processing
-- Decoupling with SQS
-- Serverless compute with Lambda
+- Translating a growing company's operational problem into cloud architecture
+- Serverless and event-driven processing
+- Decoupling and buffering with SQS
 - Verified retry and dead-letter queue behavior
 - Persistent job state with DynamoDB
 - Result archival with S3
 - SNS email notification delivery
-- Infrastructure as Code with Terraform
+- CloudWatch logging and operational alarms
+- Burst testing and service-quota analysis
 - Least-privilege IAM
-- HTTPS API entry point
-- CloudWatch execution visibility
+- S3 public-access protection
+- Infrastructure as Code with Terraform
 - Runtime verification rather than configuration-only claims
 
-## Remaining Verification
+## Remaining Work
 
-Before this portfolio project is marked complete, the remaining work includes:
+Before the project is marked fully complete:
 
-- Run burst/scaling tests
-- Complete CloudWatch metrics/alarms verification
-- Complete security review
-- Update architecture with final measured behavior
-- Decide whether to perform a dedicated DLQ redrive/recovery test
-- Run `terraform destroy` when the lab is complete
-- Verify no residual resources and perform final billing check
+- Update final architecture/lessons-learned documentation with measured results
+- Decide whether to perform an optional dedicated DLQ redrive/recovery test
+- Perform `terraform destroy` when the live lab no longer needs to remain available
+- Verify no residual AWS resources
+- Perform final AWS billing/cost check
 
 ## Project Rules
 
