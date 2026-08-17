@@ -171,5 +171,8 @@
 - [x] MADAR CloudWatch metric alarms checked — none returned.
 - [x] AWS Billing reviewed after cleanup.
 - [x] Estimated grand total recorded as `USD 0.00`.
-- [ ] Inspect/remove service-created Lambda CloudWatch log groups.
-- [ ] Mark Phase 2 `COMPLETED — VERIFIED — CLEANED UP` after the log-group residual check passes.
+- [x] Service-created Lambda CloudWatch log groups inspected.
+- [x] `/aws/lambda/madar-producer` removed.
+- [x] `/aws/lambda/madar-worker` removed.
+- [x] Follow-up log-group query returned `[]`.
+- [x] Phase 2 marked `COMPLETED — VERIFIED — CLEANED UP`.
