@@ -73,19 +73,19 @@ SNS integration is configured, but notification delivery has not yet been indepe
 
 ### SQS → Worker Lambda
 
-![Lambda worker SQS trigger](evidence/Screenshots/lambda-worker-sqs-trigger.png)
+![Lambda worker SQS trigger](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/lambda-worker-sqs-trigger.png)
 
 ### DynamoDB processed event
 
-![DynamoDB processed event](evidence/Screenshots/dynamodb-processed-event.png)
+![DynamoDB processed event](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/dynamodb-processed-event.png)
 
 ### S3 processed-event archive
 
-![S3 processed event archive](evidence/Screenshots/s3-processed-event-archive.png)
+![S3 processed event archive](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/s3-processed-event-archive.png)
 
 ### API Gateway POST /jobs route
 
-![API Gateway POST jobs](evidence/Screenshots/api-gateway-post-jobs.png)
+![API Gateway POST jobs](https://raw.githubusercontent.com/EngMohammedBashir/MADAR-serverless-event-processing/main/evidence/Screenshots/api-gateway-post-jobs.png)
 
 ## Infrastructure as Code
 
