@@ -1,18 +1,12 @@
-# Producer and worker Lambda infrastructure will be implemented here.
-# Worker event source mapping will connect SQS to the worker Lambda.
-
-
 # ============================================================
 # MADAR - Lambda
-# Packages and deploys the producer and worker functions.
+# Packages and defines the producer and worker functions.
 # ============================================================
-
 
 # ------------------------------------------------------------
 # Package Lambda source code
 # Terraform creates ZIP deployment packages from local files.
 # ------------------------------------------------------------
-
 data "archive_file" "producer" {
   type        = "zip"
   source_file = "${path.module}/../lambda/producer/handler.py"
@@ -25,12 +19,10 @@ data "archive_file" "worker" {
   output_path = "${path.module}/worker.zip"
 }
 
-
 # ------------------------------------------------------------
 # Producer Lambda
-# Receives requests, records the job, then sends it to SQS.
+# Receives requests, records the event, then sends it to SQS.
 # ------------------------------------------------------------
-
 resource "aws_lambda_function" "producer" {
   function_name = "madar-producer"
 
@@ -57,13 +49,10 @@ resource "aws_lambda_function" "producer" {
   ]
 }
 
-
 # ------------------------------------------------------------
 # Worker Lambda
-# Processes SQS jobs and persists results to DynamoDB and S3.
-# It can also publish processing notifications through SNS.
+# Processes queued events, archives payloads, and publishes SNS.
 # ------------------------------------------------------------
-
 resource "aws_lambda_function" "worker" {
   function_name = "madar-worker"
 
@@ -91,12 +80,10 @@ resource "aws_lambda_function" "worker" {
   ]
 }
 
-
 # ------------------------------------------------------------
 # SQS -> Worker event source mapping
-# AWS invokes the worker automatically when jobs enter SQS.
+# AWS invokes the worker automatically when events enter SQS.
 # ------------------------------------------------------------
-
 resource "aws_lambda_event_source_mapping" "worker_sqs" {
   event_source_arn = aws_sqs_queue.jobs.arn
   function_name    = aws_lambda_function.worker.arn

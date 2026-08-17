@@ -20,6 +20,9 @@ plan.out
 __pycache__/
 *.pyc
 
+# Temporary cleanup helper files
+terraform/delete-versions.json
+
 # Environment / secrets
 .env
 .env.*

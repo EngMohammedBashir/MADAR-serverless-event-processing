@@ -19,7 +19,7 @@ def lambda_handler(event, context):
 
         event_id = message["event_id"]
         payload = message["payload"]
-            
+
         table.update_item(
             Key={"event_id": event_id},
             UpdateExpression="SET #status = :status",

@@ -1,9 +1,7 @@
-# CloudWatch alarms/observability resources will be implemented here.
-# Preferred operational alarm: messages visible in the DLQ > 0.
-
-
-# CloudWatch alarms provide operational visibility for the MADAR pipeline.
-# This alarm detects throttling on the producer Lambda.
+# ============================================================
+# MADAR - CloudWatch
+# Metric alarms for producer throttling and visible DLQ messages.
+# ============================================================
 
 resource "aws_cloudwatch_metric_alarm" "producer_throttles" {
   alarm_name        = "madar-producer-throttles"
@@ -27,7 +25,6 @@ resource "aws_cloudwatch_metric_alarm" "producer_throttles" {
 
 # A non-empty DLQ means one or more jobs exhausted their retry attempts
 # and require investigation.
-
 resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
   alarm_name        = "madar-dlq-messages"
   alarm_description = "Detects failed MADAR jobs that reached the dead-letter queue."

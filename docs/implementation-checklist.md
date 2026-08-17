@@ -40,17 +40,17 @@
 - [x] Producer Lambda execution role defined.
 - [x] Worker Lambda execution role defined.
 - [x] Lambda logging permissions attached.
-- [x] Producer permissions scoped to required SQS/DynamoDB resources.
-- [x] Worker permissions scoped to required SQS/DynamoDB/S3/SNS resources.
-- [x] Application IAM policies reviewed in AWS after deployment.
+- [x] Application IAM permissions scoped to named MADAR resources.
 - [x] No broad `Resource = "*"` used where resource-level permissions are supported.
+- [x] Actual IAM policies reviewed in AWS after deployment.
+- [x] Final Terraform source action lists tightened after teardown to match current handler calls.
 
 ## Phase 4 — Lambda Application Code
 
 - [x] Producer Lambda implemented in Python.
 - [x] Unique event ID generated.
 - [x] Initial event state persisted in DynamoDB.
-- [x] Normalized event sent to SQS.
+- [x] Event sent to SQS.
 - [x] Fast API response returned with event ID.
 - [x] Worker Lambda implemented in Python.
 - [x] Worker parses SQS messages.
@@ -93,7 +93,7 @@
 - [x] Terraform plans reviewed before applies.
 - [x] Terraform applies completed successfully.
 - [x] Created resources inspected in AWS Console.
-- [x] Final `terraform plan` returned `No changes`.
+- [x] Final pre-cleanup `terraform plan` returned `No changes`.
 
 ## Phase 9 — Core Runtime Verification
 
@@ -114,7 +114,9 @@
 - [x] Message reached DLQ after configured retries.
 - [x] DLQ CloudWatch alarm behavior verified.
 - [x] Temporary failure mechanism removed and normal worker redeployed.
-- [ ] Optional dedicated DLQ redrive/recovery test.
+- [x] DLQ redrive started to the source queue.
+- [x] Redrive task completed successfully.
+- [x] Original failed event verified as `PROCESSED` after recovery.
 
 ## Phase 11 — Burst / Scaling Verification
 
@@ -129,7 +131,8 @@
 ## Phase 12 — Security Review
 
 - [x] S3 verified private through all four Block Public Access controls.
-- [x] Separate least-privilege Lambda roles verified.
+- [x] Separate Lambda roles verified.
+- [x] Resource-scoped application IAM verified.
 - [x] Terraform state excluded from GitHub.
 - [x] SNS email value kept outside committed source.
 - [x] Public API exposure documented as controlled-test configuration.
@@ -143,9 +146,11 @@
 - [x] S3 archive evidence captured.
 - [x] SNS confirmation and delivery evidence captured.
 - [x] DLQ failure evidence captured.
+- [x] DLQ redrive completion evidence captured.
+- [x] DLQ recovered-state evidence captured.
 - [x] Burst/throttling evidence captured.
 - [x] CloudWatch alarm evidence captured.
-- [x] IAM least-privilege evidence captured.
+- [x] IAM resource-scope evidence captured.
 - [x] S3 public-access-block evidence captured.
 - [x] `architecture.md` updated from planned to implemented state.
 - [x] `testing-verification.md` updated with observed results.
@@ -154,11 +159,17 @@
 
 ## Phase 14 — Cleanup and Final Cost Verification
 
-- [ ] Review `terraform plan -destroy` before cleanup.
-- [ ] Run `terraform destroy` after live verification is no longer needed.
-- [ ] Confirm Terraform-managed resources are removed.
-- [ ] Check API Gateway, Lambda, SQS, DynamoDB, S3, SNS, CloudWatch, and IAM for residual resources.
-- [ ] Review service-created CloudWatch log groups.
-- [ ] Review AWS Billing/Cost after cleanup.
-- [ ] Record final cost result.
-- [ ] Mark Phase 2 `COMPLETED — VERIFIED — CLEANED UP` only after final checks pass.
+- [x] `terraform plan -destroy` reviewed — 24 resources to destroy.
+- [x] First `terraform destroy` executed.
+- [x] Versioned S3 objects removed after `BucketNotEmpty` prevented initial bucket deletion.
+- [x] Second `terraform destroy` removed the final S3 bucket.
+- [x] Post-destroy Terraform plan showed 24 resources would be recreated on future apply.
+- [x] MADAR Lambda functions checked — none returned.
+- [x] MADAR SQS queues checked — none returned.
+- [x] `madar-*` DynamoDB tables checked — none returned.
+- [x] MADAR SNS topics checked — none returned.
+- [x] MADAR CloudWatch metric alarms checked — none returned.
+- [x] AWS Billing reviewed after cleanup.
+- [x] Estimated grand total recorded as `USD 0.00`.
+- [ ] Inspect/remove service-created Lambda CloudWatch log groups.
+- [ ] Mark Phase 2 `COMPLETED — VERIFIED — CLEANED UP` after the log-group residual check passes.

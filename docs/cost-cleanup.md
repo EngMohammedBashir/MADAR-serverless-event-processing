@@ -2,32 +2,32 @@
 
 ## Cost-Control Principle
 
-MADAR Phase 2 should prove the architecture without generating unnecessary usage or leaving temporary AWS resources running after testing is complete.
+MADAR Phase 2 was designed to prove the architecture without generating unnecessary usage or leaving temporary AWS resources running after testing.
 
-The final cost position must be verified from AWS Billing rather than assumed.
+The final cost position was verified from AWS Billing rather than assumed.
 
-## Cost Guardrails
+## Cost Guardrails Used
 
-- Use small synthetic test payloads.
-- Keep S3 objects small.
-- Use controlled burst tests rather than unnecessary high-volume load generation.
-- Do not enable Lambda Provisioned Concurrency for this phase.
-- Do not add unrelated services.
-- Review `terraform plan` before apply for unexpected resources.
-- Capture runtime evidence before removing the live environment.
-- Destroy the environment when further live testing is no longer needed.
+- Small synthetic test payloads
+- Small S3 objects
+- Controlled burst tests rather than unnecessary high-volume load generation
+- No Lambda Provisioned Concurrency
+- No unrelated services added to the phase
+- Terraform plans reviewed before apply
+- Runtime evidence captured before teardown
+- Infrastructure destroyed after verification
 
-## Services to Review
+## Services Reviewed
 
-- API Gateway requests
-- Lambda invocations and duration
-- SQS requests
-- DynamoDB requests/storage
-- S3 storage/requests
-- SNS notifications
-- CloudWatch Logs/alarms
+- API Gateway
+- Lambda
+- SQS
+- DynamoDB
+- S3
+- SNS
+- CloudWatch
 
-## Terraform Cleanup Workflow
+## Cleanup Workflow Performed
 
 ```text
 Final tests complete
@@ -38,43 +38,80 @@ Capture evidence
       v
 terraform plan -destroy
       |
-      v
-Review destruction plan
-      |
+      | 24 resources to destroy
       v
 terraform destroy
       |
-      v
-Manual AWS residual-resource check
+      +--> most resources removed
+      |
+      +--> S3 BucketNotEmpty
+               |
+               v
+        delete versioned objects
+               |
+               v
+        terraform destroy again
+               |
+               v
+        final S3 bucket removed
       |
       v
-AWS Billing / Cost check
+Residual-resource checks
+      |
+      v
+AWS Billing review
 ```
 
-## Cleanup Checklist
+## Cleanup Result
 
-- [ ] Empty/remove S3 test objects if required before bucket destruction.
-- [ ] Run `terraform plan -destroy` and inspect the plan.
-- [ ] Run `terraform destroy`.
-- [ ] Confirm API Gateway resources are gone.
-- [ ] Confirm Lambda functions and event-source mappings are gone.
-- [ ] Confirm SQS main queue and DLQ are gone.
-- [ ] Confirm DynamoDB project table is gone.
-- [ ] Confirm S3 project bucket is gone if Phase 2 is finished.
-- [ ] Confirm SNS topic/subscription is removed.
-- [ ] Confirm CloudWatch alarms are removed.
-- [ ] Review CloudWatch log groups because service-created logs may require separate cleanup.
-- [ ] Confirm project IAM roles/policies are removed.
-- [ ] Review Terraform state after destroy.
-- [ ] Check AWS Billing/Cost for unexpected ongoing usage.
-- [ ] Record the final cleanup and cost result in `progress.md` and the README.
+- [x] `terraform plan -destroy` reviewed.
+- [x] First `terraform destroy` executed.
+- [x] S3 versioned objects identified after `BucketNotEmpty` prevented bucket deletion.
+- [x] S3 object versions explicitly deleted.
+- [x] S3 version/delete-marker listing confirmed empty.
+- [x] Second `terraform destroy` removed the remaining bucket.
+- [x] Post-destroy Terraform plan showed 24 resources would be created on a future apply, confirming the configuration remains while the managed environment is gone.
+- [x] MADAR Lambda function check returned no results.
+- [x] MADAR SQS queue check returned no results.
+- [x] `madar-*` DynamoDB table check returned `[]`.
+- [x] MADAR SNS topic check returned `[]`.
+- [x] MADAR CloudWatch metric alarm check returned `[]`.
+- [x] AWS Bills reviewed after teardown.
+- [x] Estimated grand total recorded as `USD 0.00` at review time.
+- [ ] Explicitly inspect/remove service-created Lambda CloudWatch log groups.
+
+## S3 Versioning Cleanup Lesson
+
+S3 versioning worked as designed: deleting the bucket resource did not automatically make existing object versions disappear. The first destroy attempt therefore failed with:
+
+```text
+BucketNotEmpty: You must delete all versions in the bucket.
+```
+
+The object versions were listed and removed explicitly. A follow-up listing returned no `Versions` or `DeleteMarkers`, and Terraform then deleted the bucket successfully.
+
+This is an important lifecycle distinction: **destroying infrastructure and deleting versioned data are separate concerns unless the configuration deliberately automates object deletion.**
+
+For a disposable validation environment, `force_destroy` could be considered to simplify teardown. For production data, automatic destructive behavior should be evaluated carefully against retention and recovery requirements.
+
+## Billing Result
+
+The AWS Bills page for August 2026 showed:
+
+```text
+Estimated grand total: USD 0.00
+```
+
+The listed Phase 2 services, including API Gateway, CloudWatch, DynamoDB, Lambda, SNS, SQS, and S3, displayed USD 0.00 at the time of final review.
+
+No billing screenshot is stored because the billing result is documented textually and no image was required.
 
 ## Important Terraform Note
 
-`terraform destroy` removes only resources Terraform manages and can successfully delete. It does not replace a final AWS resource and billing review.
+`terraform destroy` removes resources Terraform manages and can successfully delete. It does not automatically cover every service-created artifact.
 
-S3 objects, service-created log groups, manually created resources, or anything created outside Terraform must be checked explicitly.
+The current configuration does not manage Lambda CloudWatch log groups explicitly, so those log groups require a separate residual check after Lambda deletion.
 
 ## Current Status
 
-Cleanup has **not** been completed yet because the live Phase 2 environment is still available for final verification. The repository must not claim cleanup or final cost verification until those steps are actually performed.
+Terraform-managed infrastructure has been removed and the final billing review is complete. One housekeeping check remains: verify whether `/aws/lambda/madar-*` log groups remain and delete them if present.

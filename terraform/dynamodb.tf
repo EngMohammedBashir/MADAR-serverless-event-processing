@@ -1,6 +1,7 @@
-# DynamoDB job-status table will be implemented here.
-# Planned partition key: job_id.
-
+# ============================================================
+# MADAR - DynamoDB
+# Event-state table keyed by event_id.
+# ============================================================
 
 resource "aws_dynamodb_table" "events" {
   name         = "madar-events"

@@ -10,7 +10,9 @@ Record **observed** values, request counts, runtime states, metrics, and outcome
 - [x] `terraform validate` passed.
 - [x] Terraform plans were reviewed before apply.
 - [x] Terraform applies completed successfully.
-- [x] Final Terraform plan returned `No changes`.
+- [x] Final pre-cleanup Terraform plan returned `No changes`.
+- [x] `terraform plan -destroy` reviewed before teardown.
+- [x] Terraform-managed infrastructure destroyed.
 
 ## 2. Happy-Path End-to-End Test
 
@@ -38,7 +40,7 @@ API Gateway
 
 ## 3. Retry and DLQ Test
 
-A controlled failure condition was temporarily added to the worker for a test payload.
+A controlled failure condition was temporarily added to the worker for one test payload.
 
 Observed behavior:
 
@@ -58,9 +60,29 @@ DLQ              -> 1 visible message
 
 ## 4. Recovery / Redrive Test
 
-- [ ] Dedicated DLQ redrive/recovery verification remains optional and has not been claimed as completed.
+The same failed message was used to prove recovery after the failure condition was removed.
 
-The existing DLQ test verifies failure isolation. It does not claim successful replay of the failed message.
+- [x] Started SQS DLQ redrive to the source queue.
+- [x] Redrive task reached 100% with status `Successfully completed`.
+- [x] Worker invocation after redrive completed without exception.
+- [x] Original failed event ID was retrieved from DynamoDB.
+- [x] Original failed event reached `status = PROCESSED`.
+
+Verified event ID:
+
+```text
+95653788-e897-4b5f-9ff5-281b055b6285
+```
+
+Verified recovery path:
+
+```text
+DLQ
+ -> redrive to source queue
+ -> Worker Lambda
+ -> successful processing
+ -> DynamoDB = PROCESSED
+```
 
 ## 5. Burst / Scaling Test
 
@@ -81,15 +103,16 @@ Observed:
 - **8/8 requests returned `Job accepted`.**
 - Producer `Throttles` metric reported **0** in the test window.
 
-Conclusion: current account concurrency quota is the practical burst constraint. Larger expected production bursts would require quota planning and possibly additional request controls.
+Conclusion: current account concurrency quota was the practical burst constraint. Larger expected production bursts would require quota planning and possibly additional request controls.
 
 ## 6. Security Verification
 
-- [x] Producer and worker use separate IAM roles.
-- [x] Application IAM policies use resource-specific permissions where supported.
+- [x] Producer and worker used separate IAM roles.
+- [x] Application IAM policies were scoped to named MADAR resources rather than broad `Resource = "*"` access where resource-level permissions are supported.
 - [x] S3 Block Public Access verified with all four controls enabled.
 - [x] SNS email value supplied locally instead of committed to source.
 - [x] Terraform state and generated deployment artifacts excluded from GitHub.
+- [x] Final Terraform source action lists tightened after teardown to match the current handler calls.
 
 ## 7. Observability Verification
 
@@ -102,11 +125,20 @@ Conclusion: current account concurrency quota is the practical burst constraint.
 
 ## 8. Cleanup Verification
 
-- [ ] Run `terraform plan -destroy` when the live environment is ready to be removed.
-- [ ] Run `terraform destroy`.
-- [ ] Confirm Terraform-managed resources are removed.
-- [ ] Review service-created CloudWatch log groups and other residual resources.
-- [ ] Review AWS Billing/Cost after cleanup.
+- [x] `terraform plan -destroy` showed 24 resources to destroy.
+- [x] First `terraform destroy` removed most resources.
+- [x] S3 deletion failed with `BucketNotEmpty` because versioning preserved archived object versions.
+- [x] All listed S3 object versions were explicitly deleted.
+- [x] `list-object-versions` returned no remaining versions or delete markers.
+- [x] Second `terraform destroy` removed the final S3 bucket.
+- [x] Post-destroy Terraform plan showed 24 resources would be recreated on future apply.
+- [x] CLI residual check returned no MADAR Lambda functions.
+- [x] CLI residual check returned no MADAR SQS queues.
+- [x] CLI residual check returned no `madar-*` DynamoDB tables.
+- [x] CLI residual check returned no MADAR SNS topics.
+- [x] CLI residual check returned no MADAR CloudWatch metric alarms.
+- [x] AWS Bills review showed estimated grand total `USD 0.00`.
+- [ ] Explicitly check/remove service-created Lambda CloudWatch log groups.
 
 ## Evidence Captured
 
@@ -118,10 +150,12 @@ Evidence is stored under `evidence/Screenshots/` and covers:
 - S3 processed archive
 - SNS subscription and delivery
 - DLQ after three failures
+- successful DLQ redrive
+- recovered event reaching `PROCESSED`
 - Lambda burst throttling
 - successful 8-request burst with zero throttles
 - CloudWatch DLQ alarm
 - worker IAM policy
 - S3 public-access block
 
-The README embeds the strongest runtime and operational evidence rather than every intermediate console screen.
+No billing screenshot is stored; the billing result is recorded in text only.

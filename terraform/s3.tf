@@ -1,6 +1,7 @@
-# S3 project storage will be implemented here if used by the final workflow.
-# S3 Block Public Access must remain enabled.
-
+# ============================================================
+# MADAR - S3
+# Private, versioned archive for processed event payloads.
+# ============================================================
 
 resource "aws_s3_bucket" "event_archive" {
   bucket_prefix = "madar-event-archive-"
