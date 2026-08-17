@@ -1,65 +1,76 @@
-# Security Plan
+# Security Verification
 
 ## Security Goals
 
 - Use least-privilege IAM roles for Lambda functions.
 - Keep S3 Block Public Access enabled.
-- Do not store AWS access keys, API secrets, tokens, or credentials in source code.
-- Do not commit Terraform state or secret `.tfvars` files.
-- Use AWS-managed encryption defaults where appropriate and document stronger KMS requirements separately.
-- Validate all external input before queueing or processing it.
+- Keep credentials, tokens, state files, and local secret values out of source control.
+- Use local AWS authentication rather than committed credentials.
 - Keep the public API exposure explicit and documented.
+- Distinguish implemented controls from future production hardening.
 
-## IAM Checklist
+## Verified IAM Controls
 
-- [ ] Producer and worker use separate IAM execution roles.
-- [ ] Producer can access only the queue/table actions it needs.
-- [ ] Worker can access only the queue, table, bucket, and notification actions it needs.
-- [ ] Avoid `Action: *` where practical.
-- [ ] Avoid `Resource: *` where resource-level permissions are supported.
-- [ ] Lambda logging permissions are limited to required CloudWatch Logs actions.
-- [ ] Review Terraform-generated IAM policy plan before apply.
-- [ ] Review actual IAM roles in AWS after deployment.
+Producer role:
 
-## Terraform Security
+- `sqs:SendMessage` scoped to `madar-processing-queue`.
+- DynamoDB item operations scoped to `madar-events`.
 
-- [ ] `.terraform/` is ignored.
-- [ ] `terraform.tfstate*` is ignored.
-- [ ] `*.tfvars` is ignored except intentionally safe example files.
-- [ ] No credentials are hard-coded in provider configuration.
-- [ ] AWS authentication uses the local AWS credential chain/profile/environment rather than committed keys.
-- [ ] Sensitive Terraform outputs are avoided or marked `sensitive = true` where necessary.
-- [ ] Terraform plan screenshots are reviewed for secrets before adding them to evidence.
+Worker role:
 
-## Application Security
+- SQS receive/delete/attribute actions scoped to `madar-processing-queue`.
+- DynamoDB item operations scoped to `madar-events`.
+- S3 object access scoped to the MADAR archive bucket path.
+- `sns:Publish` scoped to `madar-processing-notifications`.
 
-- [ ] Validate API request shape and required fields.
-- [ ] Reject invalid payloads before SQS submission.
-- [ ] Do not trust SQS message contents blindly.
-- [ ] Include job IDs in logs but avoid customer-sensitive data.
-- [ ] Keep error responses free of stack traces and sensitive implementation details.
-- [ ] Make worker processing idempotent where practical to tolerate retries.
-- [ ] Use deterministic test failure values rather than unsafe arbitrary execution paths.
+No broad `Resource = "*"` is used in these application policies where resource-level permissions are supported.
 
-## S3 and Data Protection
+Lambda logging uses the AWS-managed `AWSLambdaBasicExecutionRole` policy for CloudWatch Logs access.
 
-- [ ] S3 Block Public Access remains enabled.
-- [ ] Only worker permissions required for the project are granted.
-- [ ] Test objects contain no real confidential data.
-- [ ] DynamoDB contains only synthetic portfolio test data.
-- [ ] Encryption settings are documented from the actual deployed configuration.
+## Verified Terraform / Source-Control Controls
+
+- `.terraform/` excluded from GitHub.
+- `terraform.tfstate*` excluded from GitHub.
+- Generated Lambda ZIP packages excluded from GitHub.
+- `.terraform.lock.hcl` committed for reproducible provider selection.
+- No AWS credentials are hard-coded in provider configuration.
+- AWS authentication uses the local AWS credential chain/login flow.
+- SNS email is supplied locally using `TF_VAR_notification_email` instead of being committed to Terraform source.
+
+## Verified S3 Controls
+
+The archive bucket has all four Block Public Access settings enabled:
+
+```text
+BlockPublicAcls        = true
+IgnorePublicAcls       = true
+BlockPublicPolicy      = true
+RestrictPublicBuckets = true
+```
+
+The bucket also uses S3 server-side encryption defaults and versioning was enabled through Terraform.
 
 ## API Exposure
 
-The first lab version may use an unauthenticated API Gateway endpoint for controlled portfolio testing. If so, this must be documented accurately as a lab decision, not presented as production-ready security.
+The current API Gateway HTTP API is intentionally unauthenticated for controlled testing.
 
-## Production Enhancements — Not Implemented Unless Verified
+This is **not** presented as a production-ready authentication model. The current phase focuses on asynchronous processing behavior, failure isolation, observability, and Infrastructure as Code.
+
+## Application Security Notes
+
+The current test payloads are synthetic and contain no real customer-sensitive data.
+
+The worker uses parsed SQS message content and writes test payloads to DynamoDB/S3. Additional production input validation, schema enforcement, idempotency controls, and authentication would be required before handling real customer workloads.
+
+## Production Enhancements — Not Implemented
 
 - Cognito or another identity provider for API authentication/authorization
-- AWS WAF for public API protection where appropriate
-- Customer-managed KMS keys where organizational controls require them
+- AWS WAF for application-layer filtering and rate controls where justified
+- Customer-managed KMS keys where organizational requirements demand them
 - Secrets Manager or Parameter Store if application secrets become necessary
 - CloudTrail and centralized security monitoring
-- API throttling/usage controls based on production requirements
+- Stronger request validation/schema enforcement
+- Idempotency controls for duplicate delivery
+- Production API throttling and usage controls
 
-These remain recommendations until explicitly implemented and runtime-verified.
+These remain recommendations until implemented and verified.
