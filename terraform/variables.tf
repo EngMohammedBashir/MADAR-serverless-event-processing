@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Common project name used for AWS naming and tags"
   type        = string
-  default     = "serverless-event-driven"
+  default     = "MADAR-serverless-event-processing"
 }
 
 variable "notification_email" {
