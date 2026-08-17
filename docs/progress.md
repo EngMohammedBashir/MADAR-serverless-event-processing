@@ -2,7 +2,13 @@
 
 ## Current Status
 
-**IN PROGRESS — core MADAR serverless infrastructure is deployed with Terraform. Happy-path processing, SNS email delivery, and three-attempt DLQ failure handling have been verified. Burst/scaling, alarms, security review, final architecture documentation, and cleanup remain.**
+**IN PROGRESS — the core MADAR serverless workload has been deployed and verified with Terraform. Happy-path processing, SNS delivery, retry/DLQ behavior, burst testing, CloudWatch alarms, IAM least privilege, and S3 public-access protection are verified. Final documentation and cleanup/billing verification remain.**
+
+## Project Story
+
+MADAR is a fictional company used as one continuous cloud-transformation case study. The portfolio follows the company as it grows, moves capabilities into AWS, encounters realistic engineering problems, and solves each problem with an implemented and verified cloud design.
+
+This repository represents **Phase 2** of that journey: MADAR has already started using AWS, but its growing background workload now creates reliability and scaling problems. The engineering response is to introduce an asynchronous, serverless event-processing layer and then test it under success, failure, and burst conditions.
 
 ## Progress Rules
 
@@ -48,12 +54,18 @@
 - [x] Controlled worker failure injected for DLQ testing
 - [x] Retry behavior verified — three failed worker invocations observed
 - [x] DLQ behavior verified — message moved to DLQ after three receives
-- [x] Portfolio screenshots captured and committed
-- [ ] DLQ recovery/redrive verified
-- [ ] Burst/scaling behavior verified
-- [ ] CloudWatch alarms verified
-- [ ] Security review completed
-- [ ] Architecture updated with final measured results
+- [x] Burst/scaling behavior tested
+- [x] Account Lambda concurrency quota identified as 10
+- [x] 30-request burst exposed producer throttling — 15 throttles observed
+- [x] 8-request burst completed successfully — 8/8 accepted, 0 throttles
+- [x] CloudWatch producer-throttling alarm deployed
+- [x] CloudWatch DLQ alarm deployed and verified in `ALARM` state
+- [x] IAM least-privilege review completed
+- [x] S3 public-access blocking verified
+- [x] Final Terraform plan returned `No changes`
+- [x] Portfolio screenshots captured
+- [ ] Optional DLQ recovery/redrive verified
+- [ ] Architecture and lessons-learned documentation updated with final measured results
 - [ ] Terraform destroy completed
 - [ ] Residual-resource check completed
 - [ ] Final AWS billing check completed
@@ -74,7 +86,7 @@ PowerShell client
   -> CloudWatch execution logs
 ```
 
-A real request returned `Job accepted` and an event ID. The same event ID was subsequently found in DynamoDB with status `PROCESSED`, a JSON object with that event ID was found under the S3 `processed/` prefix, and SNS delivered a processing-success email.
+A real request returned `Job accepted` and an event ID. The same event ID was found in DynamoDB with status `PROCESSED`, a JSON object with that event ID was found under the S3 `processed/` prefix, and SNS delivered a processing-success email.
 
 ## Verified Failure Path
 
@@ -85,56 +97,108 @@ Controlled failing job
   -> Worker attempt 2 FAILED
   -> Worker attempt 3 FAILED
   -> SQS DLQ
+  -> CloudWatch DLQ alarm
 ```
 
-CloudWatch Logs showed three separate worker invocations failing with the intentional DLQ-test exception. The DLQ then reported one available message, confirming that the configured `maxReceiveCount = 3` was exercised successfully.
+CloudWatch Logs showed three separate worker invocations failing with the intentional test exception. The DLQ then reported one available message, confirming that `maxReceiveCount = 3` was exercised successfully. The `madar-dlq-messages` CloudWatch alarm subsequently entered the `ALARM` state.
 
 The temporary failure condition was removed from the worker after the test and the normal worker code was redeployed.
+
+## Burst / Scaling Test
+
+### Test 1 — 30 concurrent requests
+
+The AWS account reported an account-level Lambda concurrency limit of `10`. A 30-request concurrent burst caused the producer Lambda to scale out until the account quota became the bottleneck.
+
+Observed result:
+
+- Some requests returned `Job accepted`.
+- Some requests returned `Service Unavailable`.
+- CloudWatch recorded **15 throttled producer invocations**.
+- Producer logs showed several Lambda execution environments starting concurrently.
+
+This was treated as a useful capacity-planning finding rather than hidden as a failed test.
+
+### Test 2 — 8 concurrent requests
+
+The burst test was repeated with 8 concurrent requests.
+
+Observed result:
+
+- **8/8 requests returned `Job accepted`.**
+- CloudWatch producer `Throttles` metric reported **0** for the test window.
+
+Conclusion: the application behaves correctly within the current account quota, while a production workload expecting larger bursts would require a higher Lambda concurrency service quota.
+
+## Security Review
+
+### IAM
+
+Producer permissions are restricted to:
+
+- `sqs:SendMessage` on `madar-processing-queue`
+- DynamoDB item operations on `madar-events`
+
+Worker permissions are restricted to:
+
+- receive/delete/attributes on `madar-processing-queue`
+- DynamoDB item operations on `madar-events`
+- S3 object access under the MADAR archive bucket
+- `sns:Publish` on `madar-processing-notifications`
+
+No broad `Resource = "*"` is used in these application policies where resource-level permissions are supported.
+
+### S3
+
+The archive bucket was verified with all bucket-level public-access protections enabled:
+
+```text
+BlockPublicAcls        = true
+IgnorePublicAcls       = true
+BlockPublicPolicy      = true
+RestrictPublicBuckets = true
+```
 
 ## Current Resource State
 
 | Component | State | Evidence |
 |---|---|---|
 | API Gateway HTTP API | VERIFIED | `POST /jobs` accepted real HTTPS requests |
-| Producer Lambda | VERIFIED | API request returned `Job accepted` and event ID |
-| SQS main queue | VERIFIED | Events reached worker through SQS event source mapping |
-| SQS DLQ | VERIFIED | Controlled message failed three worker receives and moved to DLQ |
-| Worker Lambda | VERIFIED | Success and controlled-failure executions observed in CloudWatch |
+| Producer Lambda | VERIFIED | Happy-path execution plus burst/throttle analysis |
+| SQS main queue | VERIFIED | Events reached worker through event source mapping |
+| SQS DLQ | VERIFIED | Controlled message failed three receives and moved to DLQ |
+| Worker Lambda | VERIFIED | Success and controlled-failure executions observed |
 | DynamoDB | VERIFIED | Test event reached `PROCESSED` |
-| S3 | VERIFIED | Processed event JSON archived successfully |
-| SNS | VERIFIED | Confirmed subscription received worker success notification |
-| CloudWatch Logs | VERIFIED | Success and three controlled failure invocations observed |
-| CloudWatch alarms | PLANNED | Verification pending |
-| IAM | CONFIGURED | Producer/worker least-privilege application permissions implemented; final review pending |
+| S3 | VERIFIED | Processed JSON archived; public access blocked |
+| SNS | VERIFIED | Confirmed subscription received success notification |
+| CloudWatch Logs | VERIFIED | Success and failure invocations observed |
+| CloudWatch alarms | VERIFIED | DLQ alarm entered `ALARM`; producer throttle alarm deployed |
+| IAM | VERIFIED | Producer and worker policies reviewed for least privilege |
+| Terraform drift check | VERIFIED | Final plan returned `No changes` |
 
 ## 2026-08-17 — Implementation and Verification
 
 Completed:
 
-1. Cloned and opened the repository in VS Code.
-2. Initialized Terraform and installed the AWS provider plus archive provider.
-3. Deployed `madar-processing-queue` and `madar-processing-dlq`.
-4. Verified the SQS redrive policy points to the DLQ with `maxReceiveCount = 3`.
-5. Deployed the `madar-events` DynamoDB table using on-demand capacity.
-6. Deployed the S3 processed-event archive bucket with versioning and public-access blocking.
-7. Created separate producer and worker Lambda IAM roles.
-8. Added application permissions for SQS, DynamoDB, S3, and SNS as required by each function.
-9. Deployed `madar-producer` and `madar-worker` using Python 3.13.
-10. Connected the SQS main queue to `madar-worker` with batch size 1.
-11. Deployed the `madar-api` API Gateway HTTP API with `POST /jobs`.
-12. Connected API Gateway to `madar-producer` using Lambda proxy integration.
-13. Sent a real HTTPS POST request from PowerShell and received `Job accepted` with an event ID.
-14. Verified the event reached DynamoDB with status `PROCESSED`.
-15. Verified the corresponding JSON object was archived under the S3 `processed/` prefix.
-16. Verified the worker invocation in CloudWatch Logs.
-17. Added an SNS email subscription through Terraform without storing the email in repository code.
-18. Confirmed the SNS email subscription manually.
-19. Sent a second real job and verified receipt of the SNS `MADAR Job Processed` email.
-20. Added a temporary controlled failure condition to the worker solely for DLQ testing.
-21. Sent a failing job and observed three separate failed worker invocations in CloudWatch Logs.
-22. Verified the failed message moved to `madar-processing-dlq` and the DLQ reported one available message.
-23. Removed the temporary controlled-failure code and redeployed the normal worker implementation.
-24. Captured and committed portfolio evidence for API Gateway, Lambda/SQS, DynamoDB, S3, SNS, and DLQ behavior.
+1. Prepared the local Terraform/AWS CLI development environment.
+2. Deployed the SQS main queue and dead-letter queue.
+3. Deployed DynamoDB and S3 storage resources.
+4. Implemented producer and worker IAM roles and policies.
+5. Deployed producer and worker Lambda functions.
+6. Connected SQS to the worker Lambda.
+7. Deployed API Gateway with `POST /jobs` and connected it to the producer.
+8. Verified the full success path from HTTPS request to DynamoDB, S3, SNS, and CloudWatch.
+9. Injected a controlled worker failure and verified three receives followed by DLQ routing.
+10. Created CloudWatch alarms for producer throttling and DLQ messages.
+11. Verified the DLQ alarm in a real `ALARM` state.
+12. Ran a 30-request concurrent burst and discovered the account concurrency quota as the bottleneck.
+13. Verified 15 producer throttles during the 30-request burst.
+14. Repeated the test with 8 concurrent requests and verified 8/8 accepted with 0 throttles.
+15. Reviewed producer and worker IAM permissions for least privilege.
+16. Verified all four S3 public-access-block settings.
+17. Ran `terraform fmt`, `terraform validate`, and a final `terraform plan`.
+18. Final Terraform plan reported that the deployed infrastructure matches the configuration.
+19. Captured portfolio evidence for architecture, runtime behavior, failure handling, monitoring, scaling, and security.
 
 ## Evidence Captured
 
@@ -145,17 +209,22 @@ Completed:
 - `evidence/Screenshots/sns-subscription-confirmed.png`
 - `evidence/Screenshots/sns-job-processed-email.png`
 - `evidence/Screenshots/dlq-message-after-3-failures.png`
+- `evidence/Screenshots/producer-lambda-burst-throttling.png`
+- `evidence/Screenshots/burst-test-8-requests-zero-throttles.png`
+- `evidence/Screenshots/cloudwatch-dlq-alarm.png`
+- `evidence/Screenshots/iam-least-privilege-worker-policy.png`
+- `evidence/Screenshots/s3-public-access-block.png`
 
 ## Next Work
 
 ```text
-Optional DLQ redrive/recovery test
-  -> burst/scaling test
-  -> CloudWatch alarms
-  -> security review
-  -> final architecture/results documentation
+Final architecture + lessons learned
+  -> optional DLQ redrive/recovery test
+  -> decide when to tear down live lab
   -> terraform destroy
-  -> residual-resource + billing verification
+  -> residual-resource check
+  -> final billing verification
+  -> mark project COMPLETED
 ```
 
 ## Decisions and Notes
@@ -167,5 +236,6 @@ Optional DLQ redrive/recovery test
 - Terraform state, generated ZIP packages, and local `.terraform/` data are excluded from GitHub.
 - `.terraform.lock.hcl` is committed so provider selections are reproducible.
 - The SNS email address is supplied locally through `TF_VAR_notification_email` rather than committed to Terraform source.
-- DLQ is marked verified only because an actual controlled failure exercised three receives and moved a message into the DLQ.
-- A dedicated DLQ redrive/recovery test has not yet been claimed as verified.
+- DLQ is marked verified because an actual controlled failure exercised three receives and moved a message into the DLQ.
+- Burst testing records both successful behavior and discovered quota limitations instead of hiding failures.
+- MADAR is a fictional company; the engineering work and verification evidence are real portfolio implementation work.
