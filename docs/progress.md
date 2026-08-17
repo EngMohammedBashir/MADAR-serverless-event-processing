@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**FINAL CLEANUP CHECK — MADAR Phase 2 has been implemented, runtime-verified, recovered through DLQ redrive, and torn down with Terraform. Final AWS Billing review showed an estimated grand total of USD 0.00. One explicit residual check remains for service-created Lambda CloudWatch log groups.**
+**COMPLETED — VERIFIED — CLEANED UP.** MADAR Phase 2 was implemented, runtime-verified, recovered through DLQ redrive, torn down with Terraform, checked for residual resources, and reviewed in AWS Billing with an estimated grand total of `USD 0.00`.
 
 ## Project Story
 
@@ -62,9 +62,10 @@ The engineering response was an asynchronous, serverless event-processing layer 
 - [x] Residual checks returned no `madar-*` DynamoDB tables
 - [x] Residual checks returned no MADAR SNS topics
 - [x] Residual checks returned no MADAR CloudWatch metric alarms
+- [x] Service-created Lambda CloudWatch log groups found and removed
+- [x] Follow-up `/aws/lambda/madar-` log-group query returned `[]`
 - [x] Final AWS Bills review showed estimated grand total `USD 0.00`
-- [ ] Explicitly inspect/remove service-created Lambda CloudWatch log groups
-- [ ] Mark Phase 2 `COMPLETED — VERIFIED — CLEANED UP`
+- [x] Phase 2 marked `COMPLETED — VERIFIED — CLEANED UP`
 
 ## Verified Runtime Path
 
@@ -83,7 +84,7 @@ PowerShell client
 
 A real request returned `Job accepted` and an event ID. The same event ID was found in DynamoDB with status `PROCESSED`, the corresponding JSON object was found under the S3 `processed/` prefix, and SNS delivered a success email.
 
-## Verified Failure Path
+## Verified Failure and Recovery Path
 
 ```text
 Controlled failing job
@@ -93,21 +94,9 @@ Controlled failing job
   -> Worker attempt 3 FAILED
   -> SQS DLQ
   -> CloudWatch DLQ alarm
-```
-
-CloudWatch Logs showed three separate worker invocations failing with the intentional test exception. The DLQ then reported one available message, confirming `maxReceiveCount = 3` was exercised successfully. The `madar-dlq-messages` alarm entered the `ALARM` state.
-
-The temporary failure condition was removed after testing and the normal worker implementation was redeployed.
-
-## Verified Recovery Path
-
-The failed DLQ message was redriven to its source queue after the failure condition had been removed.
-
-```text
-DLQ
-  -> redrive to source queue
+  -> temporary failure condition removed
+  -> DLQ redrive
   -> Worker Lambda
-  -> successful invocation
   -> DynamoDB = PROCESSED
 ```
 
@@ -115,48 +104,15 @@ The redrive task reached **100%** with status **Successfully completed**. The or
 
 ## Burst / Scaling Test
 
-### Test 1 — 30 concurrent requests
+The 30-request concurrent burst exposed the account-level Lambda concurrency limit of `10` and produced **15 producer throttles**. Repeating the test with 8 concurrent requests produced **8/8 accepted** with **0 throttles**.
 
-The AWS account reported an account-level Lambda concurrency limit of `10`. A 30-request concurrent burst caused the producer Lambda to scale out until that quota became the bottleneck.
-
-Observed result:
-
-- Some requests returned `Job accepted`.
-- Some requests returned `Service Unavailable`.
-- CloudWatch recorded **15 producer throttles**.
-- Producer logs showed several execution environments starting concurrently.
-
-This is recorded as a capacity-planning finding rather than hidden as a failed test.
-
-### Test 2 — 8 concurrent requests
-
-The test was repeated with 8 concurrent requests.
-
-Observed result:
-
-- **8/8 requests returned `Job accepted`.**
-- CloudWatch producer `Throttles` reported **0** for the test window.
-
-Conclusion: the application behaved correctly within the current quota. A larger production workload would require a higher Lambda concurrency service quota based on measured demand.
+This is recorded as a capacity-planning finding: the serverless architecture scales, but practical capacity is still bounded by account service quotas.
 
 ## Security Review
 
-During runtime validation, producer and worker permissions were scoped to named MADAR resources rather than broad resource wildcards. The final Terraform source was tightened further after teardown so action lists match the current handler calls.
-
-The S3 archive bucket was verified with:
-
-```text
-BlockPublicAcls        = true
-IgnorePublicAcls       = true
-BlockPublicPolicy      = true
-RestrictPublicBuckets = true
-```
-
-The public API remained intentionally unauthenticated for controlled testing and is documented as non-production exposure.
+Producer and worker permissions were scoped to named MADAR resources rather than broad resource wildcards where resource-level permissions are supported. The S3 archive bucket was verified with all four Block Public Access controls enabled. The public API remained intentionally unauthenticated for controlled testing and is documented as non-production exposure.
 
 ## Cleanup Record
-
-The cleanup sequence exposed one useful operational issue:
 
 ```text
 terraform plan -destroy
@@ -167,11 +123,12 @@ terraform plan -destroy
   -> versioned S3 objects explicitly removed
   -> terraform destroy again
   -> final S3 bucket removed
+  -> residual service checks
+  -> Lambda log groups removed
+  -> final residual log-group query = []
 ```
 
 A later `terraform plan` showed **24 resources to add**, which is the expected result after all Terraform-managed resources have been destroyed while the configuration remains in Git.
-
-Residual CLI checks returned no MADAR Lambda functions, SQS queues, DynamoDB tables, SNS topics, or CloudWatch metric alarms. The remaining explicit housekeeping check is for Lambda log groups created by the service outside Terraform management.
 
 ## Cost Result
 
@@ -181,7 +138,7 @@ The AWS Bills page for August 2026 showed:
 Estimated grand total: USD 0.00
 ```
 
-API Gateway, CloudWatch, DynamoDB, Lambda, SNS, SQS, and S3 all displayed USD 0.00 at the time of final review. No billing screenshot is stored because it was not needed for the evidence set.
+No billing screenshot is stored because it was not required for the evidence set.
 
 ## Evidence Captured
 
@@ -200,25 +157,6 @@ API Gateway, CloudWatch, DynamoDB, Lambda, SNS, SQS, and S3 all displayed USD 0.
 - `evidence/Screenshots/iam-least-privilege-worker-policy.png`
 - `evidence/Screenshots/s3-public-access-block.png`
 
-## Remaining Work
+## Final Decision
 
-```text
-Check service-created Lambda CloudWatch log groups
-  -> delete them if present
-  -> synchronize final cleanup status
-  -> mark Phase 2 COMPLETED — VERIFIED — CLEANED UP
-```
-
-## Decisions and Notes
-
-- Terraform remains the source of truth for infrastructure definition.
-- AWS Console and AWS CLI are used for inspection and runtime evidence, not as the primary provisioning mechanism.
-- Runtime evidence is required before a component is marked `VERIFIED`.
-- `aws login` temporary authentication is used instead of long-lived IAM access keys.
-- Terraform state, generated ZIP packages, and local `.terraform/` data are excluded from GitHub.
-- `.terraform.lock.hcl` is committed so provider selections are reproducible.
-- The SNS email address is supplied locally through `TF_VAR_notification_email` rather than committed to source.
-- Failure handling is marked verified because an actual controlled failure exercised three receives and moved a message into the DLQ.
-- Recovery is marked verified because the same failed event was redriven and later observed as `PROCESSED`.
-- Burst testing records both successful behavior and discovered quota limitations.
-- MADAR is fictional and provides business context for the engineering case study.
+Phase 2 is closed. No additional runtime or cleanup work remains. Future work belongs to the next MADAR transformation phase.
