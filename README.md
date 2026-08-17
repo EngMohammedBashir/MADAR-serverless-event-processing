@@ -1,50 +1,48 @@
-# AWS Serverless Event-Driven Application
+# MADAR Cloud Transformation — Phase 2
 
-> **Madar Cloud Transformation — Phase 2**  
-> Portfolio Project 2 — Serverless, Event-Driven Architecture + Terraform Infrastructure as Code
+## Serverless Event-Driven Processing on AWS
 
 ## Company Context
 
-**Madar (مدار)** is a fictional growing digital commerce company used as one continuous business story across this cloud engineering portfolio.
+**MADAR (مدار)** is a fictional growing digital commerce company used as one continuous cloud-transformation case study.
 
-The portfolio follows Madar as if we are its cloud engineering team: we start with a growing company, move its capabilities into the cloud step by step, discover real operational problems, and solve each problem with an architecture that can be implemented, tested, measured, and improved.
+Phase 1 established a resilient web foundation on AWS. As MADAR continued to grow, a new problem appeared: background jobs and bursty work should not compete with customer-facing requests or require always-on processing capacity.
 
-> **Portfolio note:** Madar is fictional. The architecture, implementation, testing, troubleshooting, and evidence in this repository are real hands-on portfolio work.
+Phase 2 introduces an asynchronous, serverless processing layer and validates it under normal traffic, controlled failures, and burst conditions.
 
-### Madar Cloud Transformation Journey
+### MADAR Cloud Transformation Journey
 
 ```text
 Company growth
    |
    v
-Need reliable cloud infrastructure
-   |
-   +--> Phase 1: Highly Available AWS Web Architecture
+Phase 1: Resilient AWS web architecture
    |
    v
-Background work starts creating reliability problems
-   |
-   +--> Phase 2: Serverless Event-Driven Processing  <-- THIS PROJECT
+Background workloads grow and become bursty
    |
    v
-Future transformation phases
+Phase 2: Serverless event-driven processing  <-- THIS PROJECT
+   |
+   v
+Future phases
    +--> CI/CD automation
-   +--> Security & threat detection
+   +--> Security and threat detection
    +--> Workforce identity / SSO
    +--> Legacy workload migration
 ```
 
-The goal is not to collect AWS services. Each phase represents a realistic problem Madar encounters while moving deeper into the cloud, followed by an engineering solution and runtime evidence.
+The goal is not to collect AWS services. Each phase starts with an operational problem MADAR encounters, then documents the architecture, implementation, runtime behavior, limitations, and engineering decisions used to solve it.
 
 ## Project Status
 
-**CORE IMPLEMENTATION VERIFIED — the serverless pipeline, SNS notifications, retry/DLQ behavior, burst behavior, CloudWatch alarms, IAM least privilege, and S3 public-access protection have all been tested. Final documentation and cleanup/billing verification remain.**
+**CORE IMPLEMENTATION VERIFIED — the serverless pipeline, SNS notifications, retry/DLQ behavior, burst behavior, CloudWatch alarms, IAM least privilege, S3 public-access protection, and Terraform drift check have been tested. Final cleanup and billing verification remain.**
 
 ## Business Problem
 
-As Madar grows, customer requests and background jobs arrive in uneven bursts. A tightly coupled synchronous backend would force request intake and job processing to scale together, increasing the chance of timeouts, lost work, and expensive always-on capacity.
+As MADAR grows, customer requests and background jobs arrive in uneven bursts. A tightly coupled synchronous backend would force request intake and job processing to scale together, increasing the chance of timeouts, lost work, and expensive always-on capacity.
 
-Madar therefore needs an asynchronous processing layer that can accept work quickly, buffer it safely, process it independently, retain failed jobs for investigation, and provide operational visibility.
+MADAR therefore needs an asynchronous processing layer that can accept work quickly, buffer it safely, process it independently, retain failed jobs for investigation, and provide operational visibility.
 
 ## Implemented Architecture
 
@@ -93,7 +91,7 @@ Verified components:
 - Worker Lambda → S3 processed-event archive
 - Worker Lambda → SNS → confirmed email delivery
 - Worker Lambda execution visible in CloudWatch Logs
-- Least-privilege application IAM permissions implemented for producer and worker
+- Separate least-privilege IAM roles for producer and worker
 
 ## Verified Failure Handling
 
@@ -107,17 +105,15 @@ SQS message
   -> DLQ
 ```
 
-CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message. This proves the retry and failure-isolation behavior rather than only showing that a DLQ resource exists.
+CloudWatch Logs captured all three failed invocations, and the DLQ subsequently reported one available message. This verifies the retry and failure-isolation behavior rather than only showing that a DLQ resource exists.
+
+The temporary failure condition was removed after the test and the normal worker implementation was redeployed.
 
 ## Burst and Scaling Test
-
-The pipeline was tested with concurrent requests to observe actual behavior under load.
 
 ### 30 concurrent requests
 
 The account-level Lambda concurrency quota was `10`. During a 30-request burst, the producer attempted to scale out but CloudWatch recorded **15 throttled invocations**. Some requests therefore returned `Service Unavailable` before reaching SQS.
-
-This exposed a real capacity-planning constraint:
 
 ```text
 30 concurrent requests
@@ -127,11 +123,13 @@ This exposed a real capacity-planning constraint:
   -> 15 producer throttles observed
 ```
 
+This exposed a real capacity-planning constraint rather than an application-code failure.
+
 ### 8 concurrent requests
 
 The same test was repeated with 8 concurrent requests. All 8 returned `Job accepted`, and the producer recorded **0 throttles** during the test window.
 
-This demonstrates an important cloud-engineering lesson: the architecture can scale, but service quotas remain part of production capacity planning. A production deployment would request a higher Lambda concurrency quota based on expected load.
+The key lesson is that serverless services can scale rapidly, but account-level service quotas still define practical capacity. A production deployment expecting larger bursts would request a higher Lambda concurrency quota and size controls from measured demand.
 
 ## Operational Monitoring
 
@@ -154,6 +152,7 @@ Security controls were reviewed after functional testing:
   - `IgnorePublicAcls = true`
   - `BlockPublicPolicy = true`
   - `RestrictPublicBuckets = true`
+- The SNS email value is supplied locally through `TF_VAR_notification_email` rather than committed to source control.
 
 ## Runtime Evidence
 
@@ -242,49 +241,35 @@ Terraform manages API Gateway, Lambda, SQS/DLQ, DynamoDB, S3, SNS, IAM, CloudWat
 **Application code:** Python 3.13  
 **Source control:** Git + GitHub
 
-## Engineering Principles Demonstrated
+## Engineering Outcomes
 
-- Translating a growing company's operational problem into cloud architecture
-- Serverless and event-driven processing
-- Decoupling and buffering with SQS
-- Verified retry and dead-letter queue behavior
-- Persistent job state with DynamoDB
-- Result archival with S3
-- SNS email notification delivery
-- CloudWatch logging and operational alarms
-- Burst testing and service-quota analysis
-- Least-privilege IAM
-- S3 public-access protection
-- Infrastructure as Code with Terraform
-- Runtime verification rather than configuration-only claims
+- Translated MADAR's growing background-workload problem into an asynchronous architecture.
+- Decoupled request intake from processing with SQS.
+- Verified retry and dead-letter queue behavior with an actual controlled failure.
+- Persisted job state in DynamoDB and archived processed results in S3.
+- Verified SNS email delivery.
+- Added CloudWatch logging and operational alarms.
+- Used burst testing to discover and quantify an account-level Lambda concurrency bottleneck.
+- Verified least-privilege application IAM policies and S3 public-access protection.
+- Managed the environment reproducibly with Terraform.
+- Verified the final deployed environment has no Terraform drift.
 
 ## Remaining Work
 
-Before the project is marked fully complete:
+Before Phase 2 is marked fully complete:
 
-- Update final architecture/lessons-learned documentation with measured results
-- Decide whether to perform an optional dedicated DLQ redrive/recovery test
-- Perform `terraform destroy` when the live lab no longer needs to remain available
-- Verify no residual AWS resources
-- Perform final AWS billing/cost check
-
-## Project Rules
-
-1. The repository distinguishes between **Planned**, **Configured**, and **Verified**.
-2. No feature is marked complete until its actual runtime behavior is tested.
-3. No AWS secrets, access keys, tokens, or Terraform state files are committed.
-4. Terraform changes are reviewed with `terraform plan` before `terraform apply`.
-5. Cleanup is part of the project and must be verified after `terraform destroy`.
-6. Portfolio claims describe only what was actually implemented and verified.
-7. Madar is a fictional company; it is business context, not claimed employment or client work.
+- Optional dedicated DLQ redrive/recovery test if additional recovery evidence is desired.
+- Run `terraform destroy` when the live environment is no longer needed.
+- Verify no residual AWS resources remain.
+- Perform final AWS billing/cost check.
 
 ## Documentation
 
 - [`docs/business-problem.md`](docs/business-problem.md) — business case and success criteria
-- [`docs/architecture.md`](docs/architecture.md) — architecture and design decisions
+- [`docs/architecture.md`](docs/architecture.md) — implemented architecture and technical reasoning
 - [`docs/implementation-checklist.md`](docs/implementation-checklist.md) — build checklist
 - [`docs/progress.md`](docs/progress.md) — current implementation status
-- [`docs/testing-verification.md`](docs/testing-verification.md) — runtime, failure, burst, and recovery tests
-- [`docs/security.md`](docs/security.md) — IAM and application security checklist
+- [`docs/testing-verification.md`](docs/testing-verification.md) — runtime and failure test results
+- [`docs/security.md`](docs/security.md) — verified controls and remaining hardening
 - [`docs/cost-cleanup.md`](docs/cost-cleanup.md) — cost guardrails and cleanup verification
-- [`docs/lessons-learned.md`](docs/lessons-learned.md) — engineering decisions and lessons
+- [`docs/lessons-learned.md`](docs/lessons-learned.md) — engineering findings from implementation
